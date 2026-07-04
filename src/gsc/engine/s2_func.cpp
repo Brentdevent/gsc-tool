@@ -10,51 +10,51 @@ namespace xsk::gsc::s2
 
 extern std::array<std::pair<u16, char const*>, func_count> const func_list
 {{
-    { 0x001, "_func_001" },
-    { 0x002, "_func_002" },
-    { 0x003, "_func_003" },
-    { 0x004, "_func_004" },
-    { 0x005, "_func_005" },
-    { 0x006, "_func_006" },
-    { 0x007, "_func_007" },
-    { 0x008, "_func_008" },
-    { 0x009, "_func_009" },
-    { 0x00A, "_func_00A" },
-    { 0x00B, "_func_00B" },
-    { 0x00C, "_func_00C" },
-    { 0x00D, "_func_00D" },
-    { 0x00E, "_func_00E" },
-    { 0x00F, "_func_00F" },
-    { 0x010, "_func_010" },
-    { 0x011, "_func_011" },
-    { 0x012, "_func_012" },
-    { 0x013, "_func_013" },
-    { 0x014, "_func_014" },
-    { 0x015, "_func_015" },
-    { 0x016, "_func_016" },
-    { 0x017, "_func_017" },
-    { 0x018, "_func_018" },
-    { 0x019, "_func_019" },
-    { 0x01A, "_func_01A" },
-    { 0x01B, "_func_01B" },
-    { 0x01C, "_func_01C" },
-    { 0x01D, "_func_01D" },
-    { 0x01E, "_func_01E" },
-    { 0x01F, "_func_01F" },
-    { 0x020, "_func_020" },
-    { 0x021, "_func_021" },
-    { 0x022, "_func_022" },
-    { 0x023, "_func_023" },
-    { 0x024, "_func_024" },
-    { 0x025, "_func_025" },
-    { 0x026, "_func_026" },
-    { 0x027, "_func_027" },
-    { 0x028, "_func_028" },
-    { 0x029, "_func_029" },
-    { 0x02A, "_func_02A" },
-    { 0x02B, "_func_02B" },
-    { 0x02C, "_func_02C" },
-    { 0x02D, "_func_02D" },
+    { 0x001, "precacheturret" },
+    { 0x002, "getweaponarray" },
+    { 0x003, "createprintchannel" }, // nullsub
+    { 0x004, "updategamerprofileall" },
+    { 0x005, "getarraykeys" },
+    { 0x006, "setphysicsgravitydir" },
+    { 0x007, "gettimescale" },
+    { 0x008, "settimescale" },
+    { 0x009, "setslowmotionview" },
+    { 0x00A, "_func_00A" },         // not sure
+    { 0x00B, "_func_00B" },         // not sure
+    { 0x00C, "notifyoncommand" },
+    { 0x00D, "setprintchannel" },   // nullsub
+    { 0x00E, "print" },             // no-op-ish; jmp Scr_GetNumParam
+    { 0x00F, "println" },           // no-op-ish; jmp Scr_GetNumParam
+    { 0x010, "print3d" },           // nullsub
+    { 0x011, "line" },              // nullsub
+    { 0x012, "box" },               // nullsub
+    { 0x013, "orientedbox" },       // nullsub
+    { 0x014, "sphere" },            // nullsub
+    { 0x015, "cylinder" },          // nullsub
+    { 0x016, "spawnturret" },
+    { 0x017, "canspawnturret" },
+    { 0x018, "assert" },
+    { 0x019, "pausecinematicingame" },
+    { 0x01A, "drawcompassfriendlies" },
+    { 0x01B, "bulletspread" },
+    { 0x01C, "bullettracer" },
+    { 0x01D, "badplace_delete" },
+    { 0x01E, "badplace_cylinder" },
+    { 0x01F, "badplace_arc" },
+    { 0x020, "badplace_brush" },
+    { 0x021, "clearallcorpses" },
+    { 0x022, "setturretnode" },
+    { 0x023, "unsetturretnode" },
+    { 0x024, "getturretarray" },
+    { 0x025, "setnodepriority" },
+    { 0x026, "isnodeoccupied" },
+    { 0x027, "_func_027" },         // nullptr
+    { 0x028, "_func_028" },         // nullptr
+    { 0x029, "_func_029" },         // nullsub
+    { 0x02A, "_func_02A" },         // nullsub
+    { 0x02B, "updategamerprofile" },
+    { 0x02C, "assertex" },
+    { 0x02D, "assertmsg" },
     { 0x02E, "isdefined" },
     { 0x02F, "_func_02F" },
     { 0x030, "_func_030" },
