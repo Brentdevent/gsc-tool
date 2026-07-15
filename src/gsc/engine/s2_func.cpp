@@ -316,7 +316,7 @@ extern std::array<std::pair<u16, char const*>, func_count> const func_list
     { 0x130, "_func_130" },
     { 0x131, "_func_131" },
     { 0x132, "_func_132" },
-    { 0x133, "_func_133" },
+    { 0x133, "isusingmatchrulesdata" },
     { 0x134, "_func_134" },
     { 0x135, "_func_135" },
     { 0x136, "_func_136" },
