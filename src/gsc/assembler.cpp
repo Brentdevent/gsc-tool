@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -30,7 +30,7 @@ auto assembler::assemble(assembly const& data) -> std::tuple<buffer, buffer, buf
         assemble_function(*func);
     }
 
-    auto save = devmap_.pos();
+    auto const save = devmap_.pos();
     devmap_.pos(0);
     devmap_.write<u32>(devmap_count_);
     devmap_.pos(save);
@@ -168,7 +168,10 @@ auto assembler::assemble_instruction(instruction const& inst) -> void
             script_.write<u32>(static_cast<u32>(std::stoul(inst.data[0])));
             break;
         case opcode::OP_GetInteger:
-            script_.write<i32>(std::stoi(inst.data[0]));
+            // A literal wider than 32 bits is truncated, not rejected: original source has
+            // 'best_err = 9999999999;' and 'SetExpFog( 100000000000, ... )', and the engine's
+            // integers are 32 bit. std::stoi would throw out_of_range on both.
+            script_.write<i32>(static_cast<i32>(std::strtoll(inst.data[0].data(), nullptr, 0)));
             break;
         case opcode::OP_GetInteger64:
             script_.write<i64>(std::stoll(inst.data[0]));
@@ -177,7 +180,12 @@ auto assembler::assemble_instruction(instruction const& inst) -> void
             script_.write<f32>(std::stof(inst.data[0]));
             break;
         case opcode::OP_GetVector:
-            script_.align((ctx_->endian() == endian::little) ? 1 : 4);
+            // Stock big endian bytecode repeats the opcode in the last alignment byte before the payload.
+            if (script_.align(ctx_->endian() == endian::little ? 1 : 4) > 0)
+            {
+                script_.pos(script_.pos() - 1);
+                script_.write<u8>(ctx_->opcode_id(inst.opcode));
+            }
             script_.write<f32>(std::stof(inst.data[0]));
             script_.write<f32>(std::stof(inst.data[1]));
             script_.write<f32>(std::stof(inst.data[2]));
@@ -191,7 +199,7 @@ auto assembler::assemble_instruction(instruction const& inst) -> void
             stack_.write_cstr(encrypt_string(inst.data[0]));
             break;
         case opcode::OP_GetAnimation:
-            if (ctx_->features() & feature::str4)
+            if (ctx_->features() & (feature::str4 | feature::anim8))
                 script_.write<u64>(0);
             else
                 script_.write<u32>(0);
@@ -359,7 +367,7 @@ auto assembler::assemble_field(instruction const& inst) -> void
 
 auto assembler::assemble_params(instruction const& inst) -> void
 {
-    auto count = std::stoul(inst.data[0]);
+    auto const count = std::stoul(inst.data[0]);
 
     script_.write<u8>(static_cast<u8>(count));
 
@@ -372,15 +380,15 @@ auto assembler::assemble_params(instruction const& inst) -> void
     }
 }
 
-auto assembler::assemble_call_far(instruction const& inst, bool thread) -> void
+auto assembler::assemble_call_far(instruction const& inst, const bool thread) -> void
 {
     if (ctx_->features() & feature::farcall)
     {
         return assemble_call_far_v2(inst, thread);
     }
 
-    auto file_id = ctx_->token_id(inst.data[0]);
-    auto func_id = ctx_->token_id(inst.data[1]);
+    auto const file_id = ctx_->token_id(inst.data[0]);
+    auto const func_id = ctx_->token_id(inst.data[1]);
 
     if (ctx_->features() & feature::tok4)
         stack_.write<u32>(file_id);
@@ -412,7 +420,7 @@ auto assembler::assemble_call_far(instruction const& inst, bool thread) -> void
     }
 }
 
-auto assembler::assemble_call_far_v2(instruction const& inst, bool thread) -> void
+auto assembler::assemble_call_far_v2(instruction const& inst, const bool thread) -> void
 {
     if (inst.data[0].empty())
     {
@@ -438,7 +446,7 @@ auto assembler::assemble_call_far_v2(instruction const& inst, bool thread) -> vo
     }
 }
 
-auto assembler::assemble_call_local(instruction const& inst, bool thread) -> void
+auto assembler::assemble_call_local(instruction const& inst, const bool thread) -> void
 {
     assemble_offset(static_cast<i32>(resolve_function(inst.data[0]) - inst.index - 1));
 
@@ -448,7 +456,7 @@ auto assembler::assemble_call_local(instruction const& inst, bool thread) -> voi
     }
 }
 
-auto assembler::assemble_call_builtin(instruction const& inst, bool method, bool args) -> void
+auto assembler::assemble_call_builtin(instruction const& inst, const bool method, const bool args) -> void
 {
     if (args)
     {
@@ -466,7 +474,7 @@ auto assembler::assemble_call_builtin(instruction const& inst, bool method, bool
     }
 }
 
-auto assembler::assemble_jump(instruction const& inst, bool expr, bool back) -> void
+auto assembler::assemble_jump(instruction const& inst, const bool expr, const bool back) -> void
 {
     if (expr)
     {
@@ -474,7 +482,7 @@ auto assembler::assemble_jump(instruction const& inst, bool expr, bool back) -> 
     }
     else if (back)
     {
-        script_.write<i16>(static_cast<i16>((inst.index + 3) - resolve_label(inst.data[0])));
+        script_.write<i16>(static_cast<i16>(inst.index + 3 - resolve_label(inst.data[0])));
     }
     else
     {
@@ -489,32 +497,32 @@ auto assembler::assemble_switch(instruction const& inst) -> void
 
 auto assembler::assemble_switch_table(instruction const& inst) -> void
 {
-    auto count = std::stoul(inst.data[0]);
+    auto const count = std::stoul(inst.data[0]);
     auto index = inst.index + 3u;
 
     script_.write<u16>(static_cast<u16>(count));
 
     for (auto i = 0u; i < count; i++)
     {
-        if (inst.data[1 + (4 * i)] == "case")
+        if (inst.data[1 + 4 * i] == "case")
         {
-            auto type = static_cast<switch_type>(std::stoul(inst.data[1 + (4 * i) + 1]));
+            auto type = static_cast<switch_type>(std::stoul(inst.data[1 + 4 * i + 1]));
 
             if (type == switch_type::integer)
             {
                 if (ctx_->engine() == engine::iw9)
-                    script_.write<u32>(std::stoi(inst.data[1 + (4 * i) + 2])); //signed?
+                    script_.write<u32>(std::stoi(inst.data[1 + 4 * i + 2])); // signed?
                 else
-                    script_.write<u32>((std::stoi(inst.data[1 + (4 * i) + 2]) & 0xFFFFFF) + 0x800000);
+                    script_.write<u32>((std::stoi(inst.data[1 + 4 * i + 2]) & 0xFFFFFF) + 0x800000);
             }
             else
             {
                 // TODO: Sledgehammer's shenanigans (string id == 0)
                 script_.write<u32>((ctx_->engine() == engine::iw9) ? 0 : i + 1);
-                stack_.write_cstr(encrypt_string(inst.data[1 + (4 * i) + 2]));
+                stack_.write_cstr(encrypt_string(inst.data[1 + 4 * i + 2]));
             }
 
-            auto addr = resolve_label(inst.data[1 + (4 * i) + 3]);
+            auto const addr = resolve_label(inst.data[1 + 4 * i + 3]);
 
             if (ctx_->engine() == engine::iw9)
             {
@@ -529,9 +537,9 @@ auto assembler::assemble_switch_table(instruction const& inst) -> void
                 index += 7;
             }
         }
-        else if (inst.data[1 + (4 * i)] == "default")
+        else if (inst.data[1 + 4 * i] == "default")
         {
-            auto addr = resolve_label(inst.data[1 + (4 * i) + 1]);
+            auto const addr = resolve_label(inst.data[1 + 4 * i + 1]);
 
             if (ctx_->engine() == engine::iw9)
             {
@@ -556,9 +564,9 @@ auto assembler::assemble_switch_table(instruction const& inst) -> void
     }
 }
 
-auto assembler::assemble_offset(i32 offs) -> void
+auto assembler::assemble_offset(const i32 offs) -> void
 {
-    script_.write_i24((offs << ((ctx_->features() & feature::offs8) ? 8 : (ctx_->features() & feature::offs9) ? 9 : 10)) >> 8);
+    script_.write_i24((offs << ((ctx_->features() & feature::offs8) ? 8 : ((ctx_->features() & feature::offs9) ? 9 : 10))) >> 8);
 }
 
 auto assembler::resolve_function(std::string const& name) const -> usize
@@ -587,7 +595,7 @@ auto assembler::resolve_label(std::string const& name) const -> usize
     throw asm_error(std::format("couldn't resolve label address of {}", name));
 }
 
-auto assembler::encrypt_string(std::string const& str) -> std::string
+auto assembler::encrypt_string(std::string const& str) const -> std::string
 {
     if (!str.starts_with("_encstr_") || str.size() % 2 != 0)
     {
@@ -600,7 +608,7 @@ auto assembler::encrypt_string(std::string const& str) -> std::string
 
     for (auto i = 8u; i < str.size(); i += 2)
     {
-        data += static_cast<char>(std::stoul(str.substr(i, 2), 0, 16));
+        data += static_cast<char>(std::stoul(str.substr(i, 2), nullptr, 16));
     }
 
     return data;

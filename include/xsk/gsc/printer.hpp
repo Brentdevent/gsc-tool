@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -86,6 +86,7 @@ private:
     auto print_expr_negate(expr_negate const& exp) -> void;
     auto print_expr_complement(expr_complement const& exp) -> void;
     auto print_expr_call(expr_call const& exp) -> void;
+    auto print_expr_base(expr const& exp) -> void;
     auto print_expr_method(expr_method const& exp) -> void;
     auto print_call(call const& exp) -> void;
     auto print_expr_function(expr_function const& exp) -> void;

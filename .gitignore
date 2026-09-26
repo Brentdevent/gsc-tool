@@ -149,6 +149,9 @@ user*.bat
 # VScode
 .vscode/
 
+# JetBrains
+.idea/
+
 # Output folders
 renamed/
 parsed/
@@ -161,3 +164,7 @@ data/*
 
 # Version file
 include/xsk/version.hpp
+compile_commands.json
+
+# Plan / scratch notes
+plan/

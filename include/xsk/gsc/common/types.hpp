@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -35,9 +35,9 @@ enum class build : u8
     dev        = dev_blocks | dev_maps,
 };
 
-inline build operator&(build lhs, build rhs)
+inline auto operator&(build lhs, build rhs) -> build
 {
-    return static_cast<build>(static_cast<std::underlying_type<build>::type>(lhs) & static_cast<std::underlying_type<build>::type>(rhs));
+    return static_cast<build>(static_cast<std::underlying_type_t<build>>(lhs) & static_cast<std::underlying_type_t<build>>(rhs));
 }
 
 enum class endian : u8
@@ -48,7 +48,8 @@ enum class endian : u8
 
 enum class system : u8
 {
-    pc,
+    pc32,
+    pc64,
     ps3,
     xb2,
 };
@@ -84,22 +85,23 @@ struct feature
         hash       = 1 << 9,  // iw9 identifiers
         farcall    = 1 << 10, // iw9 new call system
         foreach    = 1 << 11, // iw9 foreach
+        anim8      = 1 << 12, // animation ref size 8
     };
 
-    feature(values value) : value_(value) {}
-    operator values() { return value_; }
-    operator bool() { return value_ != values::none; }
-    feature::values operator|(feature::values rhs) const { return static_cast<feature::values>(value_ | rhs); }
-    feature::values operator&(feature::values rhs) const { return static_cast<feature::values>(value_ & rhs); }
+    feature(const values value) : value_(value) {}
+    operator values() const  { return value_; }
+    operator bool() const { return value_ != values::none; }
+    auto operator|(const feature::values rhs) const -> feature::values { return (value_ | rhs); }
+    auto operator&(const feature::values rhs) const -> feature::values { return (value_ & rhs); }
 
-    friend feature::values operator|(feature::values lhs, feature::values rhs)
+    friend auto operator|(const feature::values lhs, const feature::values rhs) -> feature::values
     {
-        return static_cast<feature::values>(static_cast<std::underlying_type<feature::values>::type>(lhs) | static_cast<std::underlying_type<feature::values>::type>(rhs));
+        return static_cast<feature::values>(static_cast<std::underlying_type_t<feature::values>>(lhs) | static_cast<std::underlying_type_t<feature::values>>(rhs));
     }
 
-    friend feature::values operator&(feature::values lhs, feature::values rhs)
+    friend auto operator&(const feature::values lhs, const feature::values rhs) -> feature::values
     {
-        return static_cast<feature::values>(static_cast<std::underlying_type<feature::values>::type>(lhs) & static_cast<std::underlying_type<feature::values>::type>(rhs));
+        return static_cast<feature::values>(static_cast<std::underlying_type_t<feature::values>>(lhs) & static_cast<std::underlying_type_t<feature::values>>(rhs));
     }
 
 private:

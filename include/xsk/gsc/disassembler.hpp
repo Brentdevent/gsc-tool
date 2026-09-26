@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -40,9 +40,9 @@ private:
     auto disassemble_switch(instruction& inst) -> void;
     auto disassemble_switch_table(instruction& inst) -> void;
     auto disassemble_offset() -> i32;
-    auto resolve_functions() -> void;
-    auto resolve_function(std::string const& index) -> std::string;
-    auto decrypt_string(std::string const& str) -> std::string;
+    auto resolve_functions() const -> void;
+    auto resolve_function(std::string const& index) const -> std::string;
+    auto decrypt_string(std::string const& str) const -> std::string;
 };
 
 } // namespace xsk::gsc

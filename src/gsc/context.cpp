@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -28,33 +28,42 @@ context::context(gsc::feature features, gsc::engine engine, gsc::endian endian, 
 auto context::init(gsc::build build, fs_callback callback) -> void
 {
     build_ = build;
-    fs_callback_ = callback;
+    fs_callback_ = std::move(callback);
 }
 
 auto context::cleanup() -> void
 {
     header_files_.clear();
     include_cache_.clear();
-    includes_.clear();
 }
 
 auto context::engine_name() const -> std::string_view
 {
     switch (engine_)
     {
-        case engine::iw5: return "IW5";
-        case engine::iw6: return "IW6";
-        case engine::iw7: return "IW7";
-        case engine::iw8: return "IW8";
-        case engine::iw9: return "IW9";
-        case engine::s1: return "S1";
-        case engine::s2: return "S2";
-        case engine::s4: return "S4";
-        case engine::h1: return "H1";
-        case engine::h2: return "H2";
+        case engine::iw5:
+            return "IW5";
+        case engine::iw6:
+            return "IW6";
+        case engine::iw7:
+            return "IW7";
+        case engine::iw8:
+            return "IW8";
+        case engine::iw9:
+            return "IW9";
+        case engine::s1:
+            return "S1";
+        case engine::s2:
+            return "S2";
+        case engine::s4:
+            return "S4";
+        case engine::h1:
+            return "H1";
+        case engine::h2:
+            return "H2";
+        default:
+            return "";
     }
-
-    return "";
 }
 
 auto context::opcode_size(opcode op) const -> usize
@@ -229,12 +238,12 @@ auto context::opcode_size(opcode op) const -> usize
         case opcode::OP_EvalFieldVariableRef:
         case opcode::OP_EvalLevelFieldVariable:
         case opcode::OP_EvalAnimFieldVariableRef:
-            return (features_ & feature::hash) ? 9 : (features_ & feature::tok4) ? 5 : 3;
+            return (features_ & feature::hash) ? 9 : ((features_ & feature::tok4) ? 5 : 3);
         case opcode::OP_GetString:
         case opcode::OP_GetIString:
             return (features_ & feature::str4) ? 5 : 3;
         case opcode::OP_GetAnimation:
-            return (features_ & feature::str4) ? 9 : 5;
+            return (features_ & (feature::str4 | feature::anim8)) ? 9 : 5;
         case opcode::OP_GetVector:
             return 13;
         case opcode::OP_ClearVariableField:
@@ -370,7 +379,7 @@ auto context::func_id_v2(std::string const& name) const -> u64
     char const* str = name.data();
     u64 hash = 0x79D6530B0BB9B5D1;
 
-    while ( *str )
+    while (*str)
     {
         u8 byte = *str++;
 
@@ -478,7 +487,7 @@ auto context::meth_id_v2(std::string const& name) const -> u64
     char const* str = name.data();
     u64 hash = 0x79D6530B0BB9B5D1;
 
-    while ( *str )
+    while (*str)
     {
         u8 byte = *str++;
 
@@ -504,7 +513,6 @@ auto context::meth_name_v2(u64 id) const -> std::string
 
     return std::format("_meth_{:16X}", id);
 }
-
 
 auto context::meth_exists(std::string const& name) const -> bool
 {
@@ -587,7 +595,7 @@ auto context::path_id(std::string const& name) const -> u64
     char const* str = name.data();
     u64 hash = 0x47F5817A5EF961BA;
 
-    while ( *str )
+    while (*str)
     {
         u8 byte = *str++;
 
@@ -628,7 +636,7 @@ auto context::hash_id(std::string const& name) const -> u64
     char const* str = name.data();
     u64 hash = 0x79D6530B0BB9B5D1;
 
-    while ( *str )
+    while (*str)
     {
         u8 byte = *str++;
 
@@ -645,7 +653,7 @@ auto context::hash_id(std::string const& name) const -> u64
 
 auto context::hash_name(u64 id) const -> std::string
 {
-   auto const itr = hash_map_.find(id);
+    auto const itr = hash_map_.find(id);
 
     if (itr != hash_map_.end())
     {
@@ -664,10 +672,13 @@ auto context::make_token(std::string_view str) const -> std::string
 
     auto data = std::string{ str.begin(), str.end() };
 
+    // ASCII on purpose: std::tolower is a locale-aware libc call per character,
+    // and in the "C" locale it does exactly this for bytes < 128 and nothing
+    // for the rest. Script identifiers are ASCII.
     for (auto i = 0u; i < data.size(); i++)
     {
-        data[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(str[i])));
-        if (data[i] == '\\') data[i] = '/';
+        auto const c = static_cast<unsigned char>(str[i]);
+        data[i] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c | 0x20) : (c == '\\' ? '/' : static_cast<char>(c));
     }
 
     return data;
@@ -697,19 +708,12 @@ auto context::load_header(std::string const& name) -> std::tuple<std::string con
     throw error(std::format("couldn't open gsh file '{}'", name));
 }
 
-auto context::load_include(std::string const& name) -> bool
+auto context::load_include(std::string const& name) -> void
 {
     try
     {
-        if (includes_.contains(name))
-        {
-            return false;
-        }
-
-        includes_.insert(name);
-
         if (include_cache_.contains(name))
-            return true;
+            return;
 
         auto filename = name;
         filename += (instance_ == gsc::instance::server) ? ".gsc" : ".csc";
@@ -750,8 +754,6 @@ auto context::load_include(std::string const& name) -> bool
 
             include_cache_.insert({ name, std::move(funcs) });
         }
-
-        return true;
     }
     catch (std::exception const& e)
     {
@@ -759,26 +761,9 @@ auto context::load_include(std::string const& name) -> bool
     }
 }
 
-auto context::init_includes() -> void
+auto context::include_functions(std::string const& name) const -> std::vector<std::string> const&
 {
-    includes_.clear();
-}
-
-auto context::is_includecall(std::string const& name, std::string& path) -> bool
-{
-    for (auto const& inc : includes_)
-    {
-        for (auto const& fun : include_cache_.at(std::string{ inc }))
-        {
-            if (name == fun)
-            {
-                path = inc;
-                return true;
-            }
-        }
-    }
-
-    return false;
+    return include_cache_.at(name);
 }
 
 extern std::array<std::pair<opcode, std::string_view>, opcode_count> const opcode_list

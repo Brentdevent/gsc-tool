@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -10,36 +10,36 @@
 namespace xsk::gsc
 {
 
-preprocessor::preprocessor(context* ctx, std::string const& name, u8 const* data, usize size) : ctx_{ ctx }, curr_expr_{ 0 }, expand_{ 0 }, skip_{ 0 }
+preprocessor::preprocessor(context* ctx, std::string const& name, u8 const* data, usize size) : ctx_{ ctx }
 {
-    lexer_.push(lexer{ ctx, name, reinterpret_cast<char const*>(data), size });
-    indents_.push({});
+    lexer_.emplace(ctx, name, reinterpret_cast<char const*>(data), size);
+    indents_.emplace();
     defines_.reserve(5);
-    defines_.insert({ "__FILE__", { define::BUILTIN,/* false,*/ {}, {} }});
-    defines_.insert({ "__LINE__", { define::BUILTIN,/* false,*/ {}, {} }});
-    defines_.insert({ "__DATE__", { define::BUILTIN,/* false,*/ {}, {} }});
-    defines_.insert({ "__TIME__", { define::BUILTIN,/* false,*/ {}, {} }});
-    defines_.insert({ std::string(ctx->engine_name()), { define::BUILTIN,/* false,*/ {}, {} }});
+    defines_.insert({ "__FILE__", { .type = define::BUILTIN, .vararg = false, .args = {}, .exp = {} } });
+    defines_.insert({ "__LINE__", { .type = define::BUILTIN, .vararg = false, .args = {}, .exp = {} } });
+    defines_.insert({ "__DATE__", { .type = define::BUILTIN, .vararg = false, .args = {}, .exp = {} } });
+    defines_.insert({ "__TIME__", { .type = define::BUILTIN, .vararg = false, .args = {}, .exp = {} } });
+    defines_.insert({ std::string(ctx->engine_name()), { .type = define::BUILTIN, .vararg = false, .args = {}, .exp = {} } });
     directives_.reserve(15);
-    directives_.insert({ "if", directive::IF });
-    directives_.insert({ "ifdef", directive::IFDEF });
-    directives_.insert({ "ifndef", directive::IFNDEF });
-    directives_.insert({ "elif", directive::ELIF });
-    directives_.insert({ "elifdef", directive::ELIFDEF });
-    directives_.insert({ "elifndef", directive::ELIFNDEF });
-    directives_.insert({ "else", directive::ELSE });
-    directives_.insert({ "endif", directive::ENDIF });
-    directives_.insert({ "define", directive::DEFINE });
-    directives_.insert({ "undef", directive::UNDEF });
-    directives_.insert({ "pragma", directive::PRAGMA });
-    directives_.insert({ "warning", directive::WARNING });
-    directives_.insert({ "error", directive::ERROR });
-    directives_.insert({ "line", directive::LINE });
-    directives_.insert({ "include", directive::INCLUDE });
-    directives_.insert({ "inline", directive::INLINE });
-    directives_.insert({ "using_animtree", directive::USINGTREE });
+    directives_.try_emplace("if", directive::IF);
+    directives_.try_emplace("ifdef", directive::IFDEF);
+    directives_.try_emplace("ifndef", directive::IFNDEF);
+    directives_.try_emplace("elif", directive::ELIF);
+    directives_.try_emplace("elifdef", directive::ELIFDEF);
+    directives_.try_emplace("elifndef", directive::ELIFNDEF);
+    directives_.try_emplace("else", directive::ELSE);
+    directives_.try_emplace("endif", directive::ENDIF);
+    directives_.try_emplace("define", directive::DEFINE);
+    directives_.try_emplace("undef", directive::UNDEF);
+    directives_.try_emplace("pragma", directive::PRAGMA);
+    directives_.try_emplace("warning", directive::WARNING);
+    directives_.try_emplace("error", directive::ERROR);
+    directives_.try_emplace("line", directive::LINE);
+    directives_.try_emplace("include", directive::INCLUDE);
+    directives_.try_emplace("inline", directive::INLINE);
+    directives_.try_emplace("using_animtree", directive::USINGTREE);
 
-    std::tm l_time = {};
+    auto l_time = std::tm{};
     get_local_time(l_time);
     get_date_define(&l_time);
     get_time_define(&l_time);
@@ -76,15 +76,10 @@ auto preprocessor::process() -> token
 
         if (skip_) continue;
 
-        if (tok.type == token::NAME)
+        if (auto* def = expandable(tok); def != nullptr)
         {
-            auto const it = defines_.find(tok.data);
-
-            if (it != defines_.end() && (!expand_ || !reject_.contains(tok.data)))
-            {
-                expand(tok, it->second);
-                continue;
-            }
+            expand(tok, *def);
+            continue;
         }
 
         if (tok.type == token::NEWLINE)
@@ -98,19 +93,19 @@ auto preprocessor::push_header(location const& loc, std::string const& file) -> 
 {
     try
     {
-        auto name = std::format("{}.gsh", file);
+        auto file_ext = std::format("{}.gsh", file);
 
-        for (auto& inc : includes_)
+        for (auto const& include : includes_)
         {
-            if (inc == name)
-                throw ppr_error(loc, std::format("recursive header inclusion {} at {}", name, includes_.back()));
+            if (include == file_ext)
+                throw ppr_error(loc, std::format("recursive header inclusion {} at {}", file_ext, includes_.back()));
         }
 
-        auto data = ctx_->load_header(name);
+        auto [name, data, size] = ctx_->load_header(file_ext);
 
-        includes_.push_back(*std::get<0>(data));
-        indents_.push({});
-        lexer_.push(lexer{ ctx_, *std::get<0>(data), std::get<1>(data), std::get<2>(data) });
+        includes_.push_back(*name);
+        indents_.emplace();
+        lexer_.emplace(ctx_, *name, data, size);
     }
     catch (std::exception const& e)
     {
@@ -132,7 +127,7 @@ auto preprocessor::pop_header() -> void
     }
 }
 
-auto preprocessor::ban_header(location const& loc) -> void
+auto preprocessor::ban_header(location const& loc) const -> void
 {
     if (lexer_.size() > 1)
     {
@@ -184,7 +179,7 @@ auto preprocessor::read_token() -> token
     return tok;
 }
 
-auto preprocessor::read_directive(token& tok) -> void
+auto preprocessor::read_directive(token const& tok) -> void
 {
     auto next = read_token();
 
@@ -193,9 +188,7 @@ auto preprocessor::read_directive(token& tok) -> void
 
     expect(next, token::NAME);
 
-    auto const it = directives_.find(next.data);
-
-    if (it != directives_.end())
+    if (auto const it = directives_.find(next.data); it != directives_.end())
     {
         switch (it->second)
         {
@@ -255,17 +248,22 @@ auto preprocessor::read_directive(token& tok) -> void
         }
     }
 
+    // C11 6.10.1p6: inside a skipped group only the nesting directives matter;
+    // the rest does not even have to be a recognized directive name.
+    if (skip_)
+        return skip_line();
+
     throw ppr_error(next.pos, std::format("invalid preprocessing directive '{}'", next.data));
 }
 
-auto preprocessor::read_directive_if(token&) -> void
+auto preprocessor::read_directive_if(token const& /*unused*/) -> void
 {
-    auto skip = !evaluate();
+    auto const skip = !evaluate();
     indents_.top().push({ directive::IF, skip, !skip });
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_ifdef(token&) -> void
+auto preprocessor::read_directive_ifdef(token const& /*unused*/) -> void
 {
     auto skip = false;
 
@@ -278,7 +276,7 @@ auto preprocessor::read_directive_ifdef(token&) -> void
         auto tok = read_token();
         expect(tok, token::NAME);
 
-        auto name = std::move(tok.data);
+        auto const name = std::move(tok.data);
 
         tok = read_token();
         expect(tok, token::NEWLINE);
@@ -290,7 +288,7 @@ auto preprocessor::read_directive_ifdef(token&) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_ifndef(token&) -> void
+auto preprocessor::read_directive_ifndef(token const& /*unused*/) -> void
 {
     auto skip = false;
 
@@ -303,7 +301,7 @@ auto preprocessor::read_directive_ifndef(token&) -> void
         auto tok = read_token();
         expect(tok, token::NAME);
 
-        auto name = std::move(tok.data);
+        auto const name = std::move(tok.data);
 
         tok = read_token();
         expect(tok, token::NEWLINE);
@@ -315,7 +313,7 @@ auto preprocessor::read_directive_ifndef(token&) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_elif(token& tok) -> void
+auto preprocessor::read_directive_elif(token const& tok) -> void
 {
     if (indents_.top().empty())
     {
@@ -336,7 +334,7 @@ auto preprocessor::read_directive_elif(token& tok) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_elifdef(token& tok) -> void
+auto preprocessor::read_directive_elifdef(token const& tok) -> void
 {
     if (indents_.top().empty())
     {
@@ -363,7 +361,7 @@ auto preprocessor::read_directive_elifdef(token& tok) -> void
         auto next = read_token();
         expect(next, token::NAME);
 
-        auto name = std::move(next.data);
+        auto const name = std::move(next.data);
 
         next = read_token();
         expect(next, token::NEWLINE);
@@ -375,7 +373,7 @@ auto preprocessor::read_directive_elifdef(token& tok) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_elifndef(token& tok) -> void
+auto preprocessor::read_directive_elifndef(token const& tok) -> void
 {
     if (indents_.top().empty())
     {
@@ -402,7 +400,7 @@ auto preprocessor::read_directive_elifndef(token& tok) -> void
         auto next = read_token();
         expect(next, token::NAME);
 
-        auto name = std::move(next.data);
+        auto const name = std::move(next.data);
 
         next = read_token();
         expect(next, token::NEWLINE);
@@ -414,9 +412,9 @@ auto preprocessor::read_directive_elifndef(token& tok) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_else(token& tok) -> void
+auto preprocessor::read_directive_else(token const& tok) -> void
 {
-    auto next = read_token();
+    auto const next = read_token();
     expect(next, token::NEWLINE);
 
     if (indents_.top().empty())
@@ -438,9 +436,9 @@ auto preprocessor::read_directive_else(token& tok) -> void
     skip_ += skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_endif(token& tok) -> void
+auto preprocessor::read_directive_endif(token const& tok) -> void
 {
-    auto next = read_token();
+    auto const next = read_token();
     expect(next, token::NEWLINE);
 
     if (indents_.top().empty())
@@ -453,7 +451,7 @@ auto preprocessor::read_directive_endif(token& tok) -> void
     skip_ -= dir.skip ? 1 : 0;
 }
 
-auto preprocessor::read_directive_define(token&) -> void
+auto preprocessor::read_directive_define(token const& /*unused*/) -> void
 {
     if (skip_) return skip_line();
 
@@ -472,7 +470,7 @@ auto preprocessor::read_directive_define(token&) -> void
     switch (next.type)
     {
         case token::NEWLINE:
-            defines_.insert({ name, define{ define::PLAIN,/* false,*/ {}, {} }});
+            defines_.try_emplace(name, define{ .type = define::PLAIN, .vararg = false, .args = {}, .exp = {} });
             break;
         case token::LPAREN:
             if (next.space == spacing::none)
@@ -487,7 +485,7 @@ auto preprocessor::read_directive_define(token&) -> void
 
                     if (next.type == token::RPAREN)
                     {
-                        if (last_comma && !params.empty())
+                        if (last_comma && !params.empty() && !last_elips)
                             throw ppr_error(next.pos, "misplaced comma in macro param list");
 
                         break;
@@ -513,20 +511,16 @@ auto preprocessor::read_directive_define(token&) -> void
                     }
                     else if (next.type == token::ELLIPSIS)
                     {
-                        // TODO: disabled
-                        throw ppr_error(next.pos, "variadic macros not supported");
-                        //
+                        if (!last_comma || last_elips)
+                            throw ppr_error(next.pos, "misplaced elipsis in macro param list");
 
-                        // if (!last_comma || last_elips)
-                        //     throw ppr_error(next.pos, "misplaced elipsis in macro param list");
-
-                        // last_elips = true;
-                        // last_comma = false;
+                        last_elips = true;
+                        last_comma = false;
                     }
                     else if (next.type == token::COMMA)
                     {
                         if (last_elips)
-                             throw ppr_error(next.pos, "elipsis must be last in macro param list");
+                            throw ppr_error(next.pos, "elipsis must be last in macro param list");
                         if (last_comma)
                             throw ppr_error(next.pos, "misplaced comma in macro param list");
                         else
@@ -538,6 +532,7 @@ auto preprocessor::read_directive_define(token&) -> void
 
                 auto exp = std::vector<token>{};
                 auto last_sharp = false;
+                auto vaopt = 0u;
                 next = read_token();
 
                 while (next.type != token::NEWLINE)
@@ -554,6 +549,38 @@ auto preprocessor::read_directive_define(token&) -> void
                             next.type = token::MACROARG;
                             exp.push_back(std::move(next));
                         }
+                        else if (next.data == "__VA_ARGS__")
+                        {
+                            if (!last_elips)
+                                throw ppr_error(next.pos, "__VA_ARGS__ can only appear in the expansion of a variadic macro");
+
+                            if (last_sharp)
+                                exp.back().type = token::STRINGIZE;
+
+                            next.type = token::MACROVAARGS;
+                            exp.push_back(std::move(next));
+                        }
+                        else if (next.data == "__VA_OPT__")
+                        {
+                            if (!last_elips)
+                                throw ppr_error(next.pos, "__VA_OPT__ can only appear in the expansion of a variadic macro");
+
+                            if (last_sharp)
+                                throw ppr_error(next.pos, "'#' is not followed by a macro parameter");
+
+                            if (vaopt)
+                                throw ppr_error(next.pos, "__VA_OPT__ cannot be nested");
+
+                            auto const pos = next.pos;
+                            next = read_token();
+                            expect(next, token::LPAREN);
+
+                            // the content accumulates into exp under the normal
+                            // body rules, between MACROVAOPT and its end marker;
+                            // expand() skips the whole span when __VA_ARGS__ is empty.
+                            vaopt = 1;
+                            exp.emplace_back(token::MACROVAOPT, spacing::none, pos);
+                        }
                         else
                         {
                             // check for #animtree ??
@@ -562,7 +589,18 @@ auto preprocessor::read_directive_define(token&) -> void
 
                             exp.push_back(std::move(next));
                         }
-                        // TODO: VAARGS, VAOPT
+                    }
+                    else if (vaopt && next.type == token::LPAREN)
+                    {
+                        vaopt++;
+                        exp.push_back(std::move(next));
+                    }
+                    else if (vaopt && next.type == token::RPAREN)
+                    {
+                        if (--vaopt == 0)
+                            exp.emplace_back(token::MACROVAOPTEND, next.space, next.pos);
+                        else
+                            exp.push_back(std::move(next));
                     }
                     else if (next.type == token::SHARP)
                     {
@@ -593,6 +631,9 @@ auto preprocessor::read_directive_define(token&) -> void
 
                 expect(next, token::NEWLINE);
 
+                if (vaopt)
+                    throw ppr_error(next.pos, "unterminated __VA_OPT__");
+
                 if (!exp.empty())
                 {
                     if (exp.front().type == token::PASTE)
@@ -605,7 +646,7 @@ auto preprocessor::read_directive_define(token&) -> void
                         throw ppr_error(next.pos, "'#' is not followed by a macro parameter");
                 }
 
-                defines_.insert({ name, define{ define::FUNCTION, /*last_elips,*/ params, exp }});
+                defines_.try_emplace(name, define{ .type = define::FUNCTION, .vararg = last_elips, .args = params, .exp = exp });
                 break;
             }
         default:
@@ -623,7 +664,7 @@ auto preprocessor::read_directive_define(token&) -> void
 
                 expect(next, token::NEWLINE);
 
-                defines_.insert({ name, define{ define::OBJECT,/* false,*/ {}, exp }});
+                defines_.try_emplace(name, define{ .type = define::OBJECT, .vararg = false, .args = {}, .exp = exp });
             }
             else
             {
@@ -633,21 +674,19 @@ auto preprocessor::read_directive_define(token&) -> void
     }
 }
 
-auto preprocessor::read_directive_undef(token& tok) -> void
+auto preprocessor::read_directive_undef(token const& tok) -> void
 {
     if (skip_) return skip_line();
 
     auto next = read_token();
     expect(next, token::NAME);
 
-    auto name = std::move(next.data);
+    auto const name = std::move(next.data);
 
     next = read_token();
     expect(next, token::NEWLINE);
 
-    auto const it = defines_.find(name);
-
-    if (it != defines_.end())
+    if (auto const it = defines_.find(name); it != defines_.end())
     {
         if (it->second.type == define::BUILTIN)
             throw ppr_error(tok.pos, "can't undefine builtin macro");
@@ -656,92 +695,139 @@ auto preprocessor::read_directive_undef(token& tok) -> void
     }
 }
 
-auto preprocessor::read_directive_pragma(token& tok) -> void
+auto preprocessor::read_directive_pragma(token const& tok) -> void
 {
     if (skip_) return skip_line();
 
     throw ppr_error(tok.pos, "#pragma directive not supported");
 }
 
-auto preprocessor::read_directive_warning(token& tok) -> void
+auto preprocessor::read_directive_warning(token const& tok) -> void
 {
     if (skip_) return skip_line();
 
     throw ppr_error(tok.pos, "#warning directive not supported");
 }
 
-auto preprocessor::read_directive_error(token& tok) -> void
+auto preprocessor::read_directive_error(token const& tok) -> void
 {
     if (skip_) return skip_line();
 
     throw ppr_error(tok.pos, "#error directive not supported");
 }
 
-auto preprocessor::read_directive_line(token& tok) -> void
+auto preprocessor::read_directive_line(token const& tok) -> void
 {
     if (skip_) return skip_line();
 
     throw ppr_error(tok.pos, "#line directive not supported");
 }
 
-auto preprocessor::read_directive_include(token& hash, token& name) -> void
+auto preprocessor::read_directive_include(token const& hash, token& name) -> void
 {
     if (skip_) return;
 
     name.pos.begin = hash.pos.begin;
-    tokens_.push_front(token{ token::INCLUDE, spacing::none, name.pos });
+    tokens_.emplace_front(token::INCLUDE, spacing::none, name.pos);
 }
 
-auto preprocessor::read_directive_inline(token& hash, token& name) -> void
+auto preprocessor::read_directive_inline(token const& hash, token& name) -> void
 {
     if (skip_) return;
 
     name.pos.begin = hash.pos.begin;
-    tokens_.push_front(token{ token::INLINE, spacing::none, name.pos });
+    tokens_.emplace_front(token::INLINE, spacing::none, name.pos);
 }
 
-auto preprocessor::read_directive_usingtree(token& hash, token& name) -> void
+auto preprocessor::read_directive_usingtree(token const& hash, token& name) -> void
 {
     if (skip_) return;
 
     name.pos.begin = hash.pos.begin;
-    tokens_.push_front(token{ token::USINGTREE, spacing::none, name.pos });
+    tokens_.emplace_front(token::USINGTREE, spacing::none, name.pos);
 }
 
-auto preprocessor::read_hashtoken(token& tok) -> void
+auto preprocessor::read_hashtoken(token const& hash) -> void
 {
     if (skip_) return;
 
     auto next = read_token();
 
-    if (next.type == token::NAME)
+    if (next.type == token::NAME && next.data == "animtree")
     {
-        if (next.data == "animtree")
-        {
-            return read_hashtoken_animtree(tok, next);
-        }
+        return read_hashtoken_animtree(hash, next);
     }
 
-    // TODO: iw9 hash literals #d"src_game"
+    // add iw9 hash literals #d"src_game" later
 
     // if nothing match return '#'
     tokens_.push_front(std::move(next));
-    tokens_.push_front(token{ token::HASH, tok.space, tok.pos });
+    tokens_.emplace_front(token::HASH, hash.space, hash.pos);
 }
 
-auto preprocessor::read_hashtoken_animtree(token& hash, token& name) -> void
+auto preprocessor::read_hashtoken_animtree(token const& hash, token& name) -> void
 {
     if (name.space == spacing::none)
     {
         name.pos.begin = hash.pos.begin;
-        tokens_.push_front(token{ token::ANIMTREE, spacing::none, name.pos });
+        tokens_.emplace_front(token::ANIMTREE, spacing::none, name.pos);
     }
     else
     {
         // if '#   animtree' return 2 tokens
         tokens_.push_front(std::move(name));
-        tokens_.push_front(token{ token::HASH, hash.space, hash.pos });
+        tokens_.emplace_front(token::HASH, hash.space, hash.pos);
     }
+}
+
+auto preprocessor::expandable(token& tok) -> define*
+{
+    if (tok.type != token::NAME || tok.no_expand)
+        return nullptr;
+
+    auto const it = defines_.find(tok.data);
+
+    if (it == defines_.end())
+        return nullptr;
+
+    if (expand_ && reject_.contains(tok.data))
+    {
+        // rejected by the blue paint: paint the token so no later rescan considers
+        // it again, even once it leaves the protected scope.
+        tok.no_expand = true;
+        return nullptr;
+    }
+
+    return &it->second;
+}
+
+auto preprocessor::paste(token const& lhs, token const& rhs) -> token
+{
+    // C11 6.10.3.3: the two spellings are concatenated and the result is lexed
+    // again; it has to come out as exactly one token.
+    auto const text = lhs.spelling() + rhs.spelling();
+
+    try
+    {
+        auto lex = lexer{ ctx_, *lhs.pos.begin.filename, text.data(), text.size() };
+        auto res = lex.lex();
+
+        if (res.type != token::EOS && res.type != token::NEWLINE)
+        {
+            if (auto const rest = lex.lex(); rest.type == token::NEWLINE || rest.type == token::EOS)
+            {
+                res.pos = lhs.pos;
+                res.space = lhs.space;
+                return res;
+            }
+        }
+    }
+    catch (comp_error const&)
+    {
+        // falls through to the error below
+    }
+
+    throw ppr_error(lhs.pos, std::format("pasting '{}' and '{}' does not give a valid token", lhs.spelling(), rhs.spelling()));
 }
 
 auto preprocessor::expand(token& tok, define& def) -> void
@@ -753,140 +839,268 @@ auto preprocessor::expand(token& tok, define& def) -> void
     {
         if (tok.data == "__FILE__")
         {
-            tokens_.push_front(token{ token::STRING, tok.space, tok.pos, *tok.pos.begin.filename });
+            tokens_.emplace_front(token::STRING, tok.space, tok.pos, *tok.pos.begin.filename);
         }
         else if (tok.data == "__LINE__")
         {
-            tokens_.push_front(token{ token::STRING, tok.space, tok.pos, std::format("{}", tok.pos.begin.line) });
+            tokens_.emplace_front(token::STRING, tok.space, tok.pos, std::format("{}", tok.pos.begin.line));
         }
         else if (tok.data == "__DATE__")
         {
-             tokens_.push_front(token{ token::STRING, tok.space, tok.pos, date_ });
+            tokens_.emplace_front(token::STRING, tok.space, tok.pos, date_);
         }
         else if (tok.data == "__TIME__")
         {
-            tokens_.push_front(token{ token::STRING, tok.space, tok.pos, time_ });
+            tokens_.emplace_front(token::STRING, tok.space, tok.pos, time_);
         }
     }
     else if (def.type == define::OBJECT)
     {
-        tokens_.push_front(token{ token::MACROEND, tok.space, tok.pos, tok.data });
-        for (auto it = def.exp.rbegin(); it != def.exp.rend(); ++it) tokens_.push_front(*it);
-        tokens_.push_front(token{ token::MACROBEGIN, tok.space, tok.pos, tok.data });
+        tokens_.emplace_front(token::MACROEND, tok.space, tok.pos, tok.data);
+
+        for (auto it = def.exp.rbegin(); it != def.exp.rend(); ++it)
+            tokens_.push_front(*it);
+
+        tokens_.emplace_front(token::MACROBEGIN, tok.space, tok.pos, tok.data);
     }
     else if (def.type == define::FUNCTION)
     {
-        auto next = next_token();
-
-        if (next.type != token::LPAREN)
+        if (auto const next = next_token(); next.type != token::LPAREN)
         {
             tokens_.push_front(next);
-            tokens_.push_front(token{ token::MACROEND, tok.space, tok.pos, tok.data });
+            tokens_.emplace_front(token::MACROEND, tok.space, tok.pos, tok.data);
             tokens_.push_front(tok);
-            tokens_.push_front(token{ token::MACROBEGIN, tok.space, tok.pos, tok.data });
+            tokens_.emplace_front(token::MACROBEGIN, tok.space, tok.pos, tok.data);
             return;
         }
 
-        auto args = expand_params(tok, def);
+        auto const args = expand_params(tok, def);
+
+        // C11 6.10.3.1: a parameter is replaced by the fully expanded argument,
+        // except as an operand of '#' or '##', where it goes in raw. Cached per
+        // index because a body may use the same parameter more than once.
+        auto args_exp = std::vector<std::vector<token>>(args.size());
+        auto args_ready = std::vector<bool>(args.size(), false);
+
+        // args.back() is __VA_ARGS__ when the macro is variadic
+        auto const va_index = def.args.size();
+        auto const va_empty = def.vararg && args[va_index].empty();
+
+        // out of range either way, so it never collides with va_index
+        auto const index_of = [&](std::string const& name) -> usize {
+            for (auto n = 0u; n < def.args.size(); n++)
+            {
+                if (def.args[n].data == name)
+                    return n;
+            }
+
+            return args.size();
+        };
 
         auto exp = std::vector<token>{};
         exp.reserve(def.exp.size());
 
+        // whether the token just substituted was a parameter that contributed
+        // nothing, which is what decides how a following '##' behaves
+        auto empty_arg = false;
+
         for (auto i = 0u; i < def.exp.size(); i++)
         {
+            auto const before = exp.size();
+            auto const was_arg = def.exp[i].type == token::MACROARG || def.exp[i].type == token::MACROVAARGS;
+
             if (def.exp[i].type == token::MACROARG)
             {
-                auto const& name = def.exp[i].data;
+                auto const n = index_of(def.exp[i].data);
 
-                for (auto n = 0u; n < def.args.size(); n++)
+                if (n < args.size())
                 {
-                    if (def.args[n].data == name)
-                    {
-                        for (auto t : args.at(n))
-                            exp.push_back(token{ t.type, t.space, def.exp[i].pos, t.data });
 
-                        break;
+                    // left operand of '##': the argument goes in unexpanded
+                    auto const raw = (i + 1 < def.exp.size() && def.exp[i + 1].type == token::PASTE);
+
+                    if (!raw && !args_ready[n])
+                    {
+                        args_exp[n] = expand_arg(args[n]);
+                        args_ready[n] = true;
+                    }
+
+                    for (auto const& t : (raw ? args[n] : args_exp[n]))
+                    {
+                        exp.emplace_back(t.type, t.space, def.exp[i].pos, t.data);
+                        exp.back().no_expand = t.no_expand;
                     }
                 }
             }
             else if (def.exp[i].type == token::MACROVAARGS)
             {
-                // TODO:
-                // if (!def.vararg)
-                //     throw ppr_error(def.exp[i].pos, "__VA_ARGS__ can only appear in the expansion of a variadic macro");
+                auto const raw = (i + 1 < def.exp.size() && def.exp[i + 1].type == token::PASTE);
 
-                // for (auto t : args.back()) exp.push_back(t);
+                if (!raw && !args_ready[va_index])
+                {
+                    args_exp[va_index] = expand_arg(args[va_index]);
+                    args_ready[va_index] = true;
+                }
+
+                for (auto const& t : (raw ? args[va_index] : args_exp[va_index]))
+                {
+                    exp.emplace_back(t.type, t.space, def.exp[i].pos, t.data);
+                    exp.back().no_expand = t.no_expand;
+                }
             }
             else if (def.exp[i].type == token::MACROVAOPT)
             {
-                // TODO:
-                // if (!def.vararg)
-                //     throw ppr_error(def.exp[i].pos, "__VA_OPT__ can only appear in the expansion of a variadic macro");
-
-                //
-                // if (!args.back().empty())
-                // {
-                //     // paste opt
-                // }
+                // with __VA_ARGS__ empty the whole content is dropped; otherwise
+                // the following iterations process it as a normal body
+                if (va_empty)
+                {
+                    while (i < def.exp.size() && def.exp[i].type != token::MACROVAOPTEND)
+                        i++;
+                }
+            }
+            else if (def.exp[i].type == token::MACROVAOPTEND)
+            {
+                // closes the block, nothing to emit
             }
             else if (def.exp[i].type == token::STRINGIZE)
             {
-                auto name = def.exp[i + 1].data;
+                auto const n = (def.exp[i + 1].type == token::MACROVAARGS) ? va_index : index_of(def.exp[i + 1].data);
                 auto str = std::string{};
 
-                for (auto n = 0u; n < def.args.size(); n++)
+                if (n < args.size())
                 {
-                    if (def.args[n].data == name)
+                    for (usize idx = 0; auto const& t : args[n])
                     {
-                        for (size_t idx = 0; auto t : args.at(n))
-                        {
-                            if (idx != 0 && t.space == spacing::back)
-                                str.append(" ");
-                            str.append(t.to_string());
-                            idx++;
-                        }
-                        break;
+                        if (idx != 0 && t.space == spacing::back)
+                            str.append(" ");
+                        str.append(t.spelling());
+                        idx++;
                     }
                 }
 
-                exp.push_back(token{ token::STRING, def.exp[i].space, def.exp[i].pos, str });
+                exp.emplace_back(token::STRING, def.exp[i].space, def.exp[i].pos, str);
                 i++;
             }
             else if (def.exp[i].type == token::PASTE)
             {
-                if (exp.back().type == token::NAME && def.exp[i+1].type == token::NAME)
+                // the right operand goes in raw too, and may be several tokens
+                auto const& rhs = def.exp[i + 1];
+                auto rhs_toks = std::vector<token>{};
+
+                if (rhs.type == token::MACROARG || rhs.type == token::MACROVAARGS)
                 {
-                    exp.back().data.append(def.exp[i+1].data);
+                    if (auto const n = (rhs.type == token::MACROVAARGS) ? va_index : index_of(rhs.data); n < args.size())
+                        rhs_toks = args[n];
                 }
                 else
                 {
-                    throw ppr_error(def.exp[i].pos, "paste can only be applied to identifiers");
+                    rhs_toks.push_back(rhs);
                 }
+
+                if (!rhs_toks.empty())
+                {
+                    // only the last token of the left operand and the first of the
+                    // right are pasted; the rest of the right side is appended as is
+                    if (empty_arg || exp.empty())
+                    {
+                        // the left operand was an empty argument, nothing to paste to
+                        for (auto const& t : rhs_toks)
+                            exp.push_back(t);
+                    }
+                    else
+                    {
+                        auto const lhs = exp.back();
+                        exp.pop_back();
+                        exp.push_back(paste(lhs, rhs_toks.front()));
+
+                        for (auto it = rhs_toks.begin() + 1; it != rhs_toks.end(); ++it)
+                            exp.push_back(*it);
+                    }
+                }
+
                 i++;
             }
             else
             {
                 exp.push_back(def.exp[i]);
             }
+
+            empty_arg = was_arg && exp.size() == before;
         }
 
-        tokens_.push_front(token{ token::MACROEND, tok.space, tok.pos, tok.data });
-        for (auto it = exp.rbegin(); it != exp.rend(); ++it) tokens_.push_front(*it);
-        tokens_.push_front(token{ token::MACROBEGIN, tok.space, tok.pos, tok.data });
+        tokens_.emplace_front(token::MACROEND, tok.space, tok.pos, tok.data);
+
+        for (auto it = exp.rbegin(); it != exp.rend(); ++it)
+            tokens_.push_front(*it);
+
+        tokens_.emplace_front(token::MACROBEGIN, tok.space, tok.pos, tok.data);
     }
 }
 
-auto preprocessor::expand_params(token& tok, define& def) -> std::vector<std::vector<token>>
+auto preprocessor::expand_arg(std::vector<token> const& arg) -> std::vector<token>
 {
-    auto nest_paren = 0;
-    auto args = std::vector<std::vector<token>>{};
-    args.push_back({});
+    if (arg.empty())
+        return {};
+
+    // The argument is expanded in isolation, on its own queue and behind an EOS
+    // guard: expand() can push tokens back as it does in the normal flow, and a
+    // function-like macro at the end of the argument will not look for its '('
+    // outside of it.
+    auto saved = std::exchange(tokens_, std::deque<token>{ arg.begin(), arg.end() });
+    tokens_.emplace_back(token::EOS, spacing::none, arg.back().pos);
+
+    auto out = std::vector<token>{};
+    out.reserve(arg.size());
 
     while (true)
     {
-        auto next = next_token();
+        auto tok = next_token();
 
-        if (next.type == token::EOS)
+        if (tok.type == token::EOS)
+            break;
+
+        // The markers are consumed here instead of travelling in the result: they
+        // are scope delimiters for process(), and any other consumer (expand_params,
+        // '#', '##') would take them for text. The argument comes out clean, and the
+        // protection they carried is preserved by token::no_expand, which
+        // expandable() paints token by token.
+        if (tok.type == token::MACROBEGIN)
+        {
+            reject_.insert(tok.data);
+            expand_++;
+            continue;
+        }
+
+        if (tok.type == token::MACROEND)
+        {
+            reject_.erase(tok.data);
+            expand_--;
+            continue;
+        }
+
+        if (auto* def = expandable(tok); def != nullptr)
+        {
+            expand(tok, *def);
+            continue;
+        }
+
+        out.push_back(std::move(tok));
+    }
+
+    tokens_ = std::move(saved);
+
+    return out;
+}
+
+auto preprocessor::expand_params(token const& tok, define const& def) -> std::vector<std::vector<token>>
+{
+    auto nest_paren = 0;
+    auto args = std::vector<std::vector<token>>{};
+    args.emplace_back();
+
+    while (true)
+    {
+        if (auto next = next_token(); next.type == token::EOS)
         {
             throw ppr_error(tok.pos, "unterminated function-like macro invocation");
         }
@@ -899,15 +1113,13 @@ auto preprocessor::expand_params(token& tok, define& def) -> std::vector<std::ve
         {
             if (nest_paren == 0)
                 break;
-            else
-            {
-                nest_paren--;
-                args.back().push_back(next);
-            }
+
+            nest_paren--;
+            args.back().push_back(next);
         }
-        else if (next.type == token::COMMA && nest_paren == 0 /*&& !(def.vararg && args.size() > def.args.size())*/)
+        else if (next.type == token::COMMA && nest_paren == 0 && !(def.vararg && args.size() > def.args.size()))
         {
-            args.push_back({});
+            args.emplace_back();
         }
         else
         {
@@ -915,7 +1127,7 @@ auto preprocessor::expand_params(token& tok, define& def) -> std::vector<std::ve
         }
     }
 
-    if (def.args.empty() && args.size() == 1 && args[0].empty())
+    if (def.args.empty() && !def.vararg && args.size() == 1 && args[0].empty())
     {
         args.pop_back();
     }
@@ -925,20 +1137,25 @@ auto preprocessor::expand_params(token& tok, define& def) -> std::vector<std::ve
         throw ppr_error(tok.pos, "too few arguments provided to function-like macro invocation");
     }
 
-    if (/*!def.vararg &&*/ args.size() > def.args.size())
+    if (def.vararg)
+    {
+        // args.back() is always __VA_ARGS__, empty when nothing was passed
+        if (args.size() == def.args.size())
+            args.emplace_back();
+    }
+    else if (args.size() > def.args.size())
     {
         throw ppr_error(tok.pos, "too many arguments provided to function-like macro invocation");
     }
 
-    // TODO: expand args
     return args;
 }
 
-auto preprocessor::expect(token& tok, token::kind expected, spacing) -> void
+auto preprocessor::expect(token const& tok, const token::kind expected, spacing /*unused*/) const -> void
 {
     if (tok.type != expected)
     {
-        throw ppr_error(tok.pos, std::format("expected {} found {}", (u8)expected, (u8)tok.type));
+        throw ppr_error(tok.pos, std::format("expected '{}', got '{}'", token::name(expected), tok.to_string()));
     }
 }
 
@@ -947,7 +1164,7 @@ auto preprocessor::evaluate() -> bool
     if (skip_)
     {
         skip_line();
-        return 0;
+        return false;
     }
 
     // get expression tokens
@@ -962,7 +1179,8 @@ auto preprocessor::evaluate() -> bool
     tokens_.push_back(tok);
 
     // expand expression and add tokens to expr_ list
-    bool last_def = false, last_paren = false;
+    bool last_def = false;
+    bool last_paren = false;
     tok = next_token();
     while (tok.type != token::NEWLINE)
     {
@@ -1012,15 +1230,13 @@ auto preprocessor::evaluate() -> bool
                 last_def = false;
                 last_paren = false;
 
-                auto const it = defines_.find(tok.data);
-
-                if (it != defines_.end() && (!expand_ || !reject_.contains(tok.data)))
+                if (auto* def = expandable(tok); def != nullptr)
                 {
-                    expand(tok, it->second);
+                    expand(tok, *def);
                 }
-                else // macro not defined
+                else // macro not defined, or painted by the blue paint
                 {
-                    expr_.push_back(token{ token::FALSE, tok.space, tok.pos });
+                    expr_.emplace_back(token::FALSE, tok.space, tok.pos);
                 }
             }
         }
@@ -1037,7 +1253,7 @@ auto preprocessor::evaluate() -> bool
     expr_.push_back(std::move(tok));
     curr_expr_ = 0;
 
-    auto result = static_cast<bool>(eval_expr());
+    auto const result = static_cast<bool>(eval_expr());
 
     if (eval_peek().type != token::NEWLINE)
     {
@@ -1094,94 +1310,94 @@ auto preprocessor::eval_consume(token::kind type, std::string_view msg)
     throw ppr_error(eval_peek().pos, std::format("{}", msg));
 }
 
-auto preprocessor::eval_expr() -> i32
+auto preprocessor::eval_expr() -> i64
 {
     auto cond = eval_expr_or();
 
     while (eval_match(token::QMARK))
     {
-        auto lval = eval_expr();
+        auto const lval = eval_expr();
         eval_consume(token::COLON, "expected ':' to match '?' ");
-        auto rval = eval_expr();
+        auto const rval = eval_expr();
         cond = cond ? lval : rval;
     }
 
     return cond;
 }
 
-auto preprocessor::eval_expr_or() -> i32
+auto preprocessor::eval_expr_or() -> i64
 {
     auto lval = eval_expr_and();
 
     while (eval_match(token::OR))
     {
-        auto rval = eval_expr_and();
+        auto const rval = eval_expr_and();
         lval = lval || rval;
     }
 
     return lval;
 }
 
-auto preprocessor::eval_expr_and() -> i32
+auto preprocessor::eval_expr_and() -> i64
 {
     auto lval = eval_expr_bwor();
 
     while (eval_match(token::AND))
     {
-        auto rval = eval_expr_bwor();
+        auto const rval = eval_expr_bwor();
         lval = lval && rval;
     }
 
     return lval;
 }
 
-auto preprocessor::eval_expr_bwor() -> i32
+auto preprocessor::eval_expr_bwor() -> i64
 {
     auto lval = eval_expr_bwexor();
 
     while (eval_match(token::BITOR))
     {
-        auto rval = eval_expr_bwexor();
+        auto const rval = eval_expr_bwexor();
         lval = lval | rval;
     }
 
     return lval;
 }
 
-auto preprocessor::eval_expr_bwexor() -> i32
+auto preprocessor::eval_expr_bwexor() -> i64
 {
     auto lval = eval_expr_bwand();
 
     while (eval_match(token::BITEXOR))
     {
-        auto rval = eval_expr_bwand();
+        auto const rval = eval_expr_bwand();
         lval = lval ^ rval;
     }
 
     return lval;
 }
 
-auto preprocessor::eval_expr_bwand() -> i32
+auto preprocessor::eval_expr_bwand() -> i64
 {
     auto lval = eval_expr_eq();
 
     while (eval_match(token::BITAND))
     {
-        auto rval = eval_expr_eq();
+        auto const rval = eval_expr_eq();
         lval = lval & rval;
     }
 
     return lval;
 }
 
-auto preprocessor::eval_expr_eq() -> i32
+auto preprocessor::eval_expr_eq() -> i64
 {
     auto lval = eval_expr_lge();
 
     while (eval_match(token::EQ) || eval_match(token::NE))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_lge();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_lge();
 
         switch (oper.type)
         {
@@ -1199,14 +1415,14 @@ auto preprocessor::eval_expr_eq() -> i32
     return lval;
 }
 
-auto preprocessor::eval_expr_lge() -> i32
+auto preprocessor::eval_expr_lge() -> i64
 {
     auto lval = eval_expr_shift();
 
     while (eval_match(token::GT) || eval_match(token::GE) || eval_match(token::LT) || eval_match(token::LE))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_shift();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_shift();
 
         switch (oper.type)
         {
@@ -1230,14 +1446,14 @@ auto preprocessor::eval_expr_lge() -> i32
     return lval;
 }
 
-auto preprocessor::eval_expr_shift() -> i32
+auto preprocessor::eval_expr_shift() -> i64
 {
     auto lval = eval_expr_add();
 
     while (eval_match(token::SHL) || eval_match(token::SHR))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_add();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_add();
 
         switch (oper.type)
         {
@@ -1255,14 +1471,14 @@ auto preprocessor::eval_expr_shift() -> i32
     return lval;
 }
 
-auto preprocessor::eval_expr_add() -> i32
+auto preprocessor::eval_expr_add() -> i64
 {
     auto lval = eval_expr_factor();
 
     while (eval_match(token::PLUS) || eval_match(token::MINUS))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_factor();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_factor();
 
         switch (oper.type)
         {
@@ -1280,14 +1496,14 @@ auto preprocessor::eval_expr_add() -> i32
     return lval;
 }
 
-auto preprocessor::eval_expr_factor() -> i32
+auto preprocessor::eval_expr_factor() -> i64
 {
     auto lval = eval_expr_unary();
 
     while (eval_match(token::STAR) || eval_match(token::DIV) || eval_match(token::MOD))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_unary();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_unary();
 
         switch (oper.type)
         {
@@ -1312,12 +1528,12 @@ auto preprocessor::eval_expr_factor() -> i32
     return lval;
 }
 
-auto preprocessor::eval_expr_unary() -> i32
+auto preprocessor::eval_expr_unary() -> i64
 {
     if (eval_match(token::BANG) || eval_match(token::TILDE) || eval_match(token::PLUS) || eval_match(token::MINUS))
     {
-        auto oper = eval_prev();
-        auto rval = eval_expr_unary();
+        auto const oper = eval_prev();
+        auto const rval = eval_expr_unary();
 
         switch (oper.type)
         {
@@ -1337,7 +1553,7 @@ auto preprocessor::eval_expr_unary() -> i32
     return eval_expr_primary();
 }
 
-auto preprocessor::eval_expr_primary() -> i32
+auto preprocessor::eval_expr_primary() -> i64
 {
     if (eval_match(token::TRUE))
         return 1;
@@ -1345,15 +1561,27 @@ auto preprocessor::eval_expr_primary() -> i32
     if (eval_match(token::FALSE))
         return 0;
 
+    // C11 6.10.1p4: #if arithmetic is done in intmax_t
     if (eval_match(token::FLT))
-        return static_cast<i32>(std::stof(eval_prev().data));
+        return static_cast<i64>(std::stod(eval_prev().data));
 
     if (eval_match(token::INT))
-        return static_cast<i32>(std::stoi(eval_prev().data));
+    {
+        auto const& val = eval_prev();
+
+        try
+        {
+            return std::stoll(val.data);
+        }
+        catch (std::exception const&)
+        {
+            throw ppr_error(val.pos, std::format("integer literal '{}' is out of range", val.data));
+        }
+    }
 
     if (eval_match(token::LPAREN))
     {
-        auto val = eval_expr();
+        auto const val = eval_expr();
         eval_consume(token::RPAREN, "expect ')' after expression.");
         return val;
     }
@@ -1362,9 +1590,7 @@ auto preprocessor::eval_expr_primary() -> i32
     {
         if (eval_match(token::NAME) || eval_match(token::LPAREN))
         {
-            auto val = eval_prev();
-
-            if (val.type == token::NAME)
+            if (auto val = eval_prev(); val.type == token::NAME)
             {
                 return defines_.contains(val.data);
             }
@@ -1384,9 +1610,9 @@ auto preprocessor::eval_expr_primary() -> i32
     throw ppr_error(eval_peek().pos, "invalid preprocessor expression");
 }
 
-auto preprocessor::get_local_time(std::tm& l_time) -> void
+auto preprocessor::get_local_time(std::tm& l_time) const -> void
 {
-    std::time_t t;
+    std::time_t t = 0;
     time(&t);
 #ifndef _WIN32
     localtime_r(&t, &l_time);
@@ -1395,14 +1621,14 @@ auto preprocessor::get_local_time(std::tm& l_time) -> void
 #endif
 }
 
-auto preprocessor::get_date_define(std::tm* time_p) -> void
+auto preprocessor::get_date_define(std::tm const* time_p) -> void
 {
     char buf[] = "??? ?? ????";
     std::strftime(buf, sizeof(buf), "%b %d %Y", time_p);
     date_ = std::string("\"").append(buf).append("\"");
 }
 
-auto preprocessor::get_time_define(std::tm* time_p) -> void
+auto preprocessor::get_time_define(std::tm const* time_p) -> void
 {
     char buf[] = "??:??:??";
     std::strftime(buf, sizeof(buf), "%T", time_p);

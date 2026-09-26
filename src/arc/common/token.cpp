@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -12,9 +12,9 @@
 namespace xsk::arc
 {
 
-auto token::to_string() -> std::string
+auto token::name(const kind k) -> std::string_view
 {
-    switch (type)
+    switch (k)
     {
         case token::PLUS: return "+";
         case token::MINUS: return "-";
@@ -64,13 +64,13 @@ auto token::to_string() -> std::string
         case token::RBRACE: return "}";
         case token::LPAREN: return "(";
         case token::RPAREN: return ")";
-        case token::NAME: return data;
-        case token::PATH: return data;
-        case token::STRING: return data;
-        case token::ISTRING: return data;
-        case token::HASHSTR: return data;
-        case token::INT: return data;
-        case token::FLT: return data;
+        case token::NAME: return "identifier";
+        case token::PATH: return "path";
+        case token::STRING: return "string";
+        case token::ISTRING: return "localized string";
+        case token::HASHSTR: return "hashed string";
+        case token::INT: return "integer";
+        case token::FLT: return "float";
         case token::DEVBEGIN: return "/#";
         case token::DEVEND: return "#/";
         case token::INLINE: return "#inline";
@@ -131,7 +131,93 @@ auto token::to_string() -> std::string
         case token::GETDVARCOLORALPHA: return "getdvarcoloralpha";
         case token::GETFIRSTARRAYKEY: return "getfirstarraykey";
         case token::GETNEXTARRAYKEY: return "getnextarraykey";
+        case token::SEQ: return "===";
+        case token::SNE: return "!==";
+        case token::ARROW: return "->";
+        case token::INSERT: return "#insert";
+        case token::USING: return "#using";
+        case token::PRECACHE: return "#precache";
+        case token::NAMESPACE: return "namespace";
+        case token::FUNCTION: return "function";
+        case token::CLASS: return "class";
+        case token::CONSTRUCTOR: return "constructor";
+        case token::DESTRUCTOR: return "destructor";
+        case token::VAR: return "var";
+        case token::NEW: return "new";
+        case token::WORLD: return "world";
+        case token::CLASSES: return "classes";
+        case token::HASH: return "#";
+        case token::NEWLINE: return "end of line";
+        case token::EOS: return "end of file";
+        case token::DEFINED: return "defined";
+        case token::MACROBEGIN: return "macro begin";
+        case token::MACROEND: return "macro end";
+        case token::MACROARG: return "macro argument";
+        case token::MACROVAOPT: return "__VA_OPT__";
+        case token::MACROVAOPTEND: return "__VA_OPT__ end";
+        case token::MACROVAARGS: return "__VA_ARGS__";
+        case token::STRINGIZE: return "#";
+        case token::PASTE: return "##";
         default: return "*INTERNAL*";
+    }
+}
+
+auto token::to_string() const -> std::string
+{
+    switch (type)
+    {
+        case token::NAME:
+        case token::PATH:
+        case token::STRING:
+        case token::ISTRING:
+        case token::HASHSTR:
+        case token::INT:
+        case token::FLT:
+            return data;
+        default:
+            return std::string{ name(type) };
+    }
+}
+
+namespace
+{
+
+// Re-escapes what the lexer already decoded, so the text can be read back as a
+// source literal. The original spelling is not kept anywhere, so a character
+// written literally comes back as an escape; that is equivalent, not identical.
+auto escaped(std::string_view str) -> std::string
+{
+    auto out = std::string{};
+    out.reserve(str.size());
+
+    for (auto const c : str)
+    {
+        switch (c)
+        {
+            case '"': out.append("\\\""); break;
+            case '\\': out.append("\\\\"); break;
+            case '\t': out.append("\\t"); break;
+            case '\r': out.append("\\r"); break;
+            case '\n': out.append("\\n"); break;
+            default: out.push_back(c); break;
+        }
+    }
+
+    return out;
+}
+
+} // namespace
+
+// How the token would be written in source. to_string() gives the value, which
+// for a string drops its quotes; '#' and '##' need the literal spelling instead.
+auto token::spelling() const -> std::string
+{
+    switch (type)
+    {
+        case token::STRING: return std::format("\"{}\"", escaped(data));
+        case token::ISTRING: return std::format("&\"{}\"", escaped(data));
+        case token::HASHSTR: return std::format("#\"{}\"", escaped(data));
+        default: return to_string();
     }
 }
 

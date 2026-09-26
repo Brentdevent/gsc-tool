@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -70,6 +70,18 @@ std::unordered_map<std::string_view, token::kind> const keyword_map
     { "getdvarcoloralpha", token::GETDVARCOLORALPHA },
     { "getfirstarraykey", token::GETFIRSTARRAYKEY },
     { "getnextarraykey", token::GETNEXTARRAYKEY },
+// v3 keywords (size64 bits)
+    { "var", token::VAR },
+    { "class", token::CLASS },
+    { "constructor", token::CONSTRUCTOR },
+    { "destructor", token::DESTRUCTOR },
+    { "function", token::FUNCTION },
+    { "autoexec", token::AUTOEXEC },
+    { "codecall", token::CODECALL },
+    { "private", token::PRIVATE },
+    { "world", token::WORLD },
+    { "classes", token::CLASSES },
+    { "new", token::NEW },
 }};
 
 } // anonymous namespace
@@ -77,8 +89,7 @@ std::unordered_map<std::string_view, token::kind> const keyword_map
 parser::parser(context* ctx)
     : ctx_{ ctx }, ppr_{ preprocessor{ ctx, "", nullptr, 0 } },
       tok_{ token::EOS, spacing::null, location{} },
-      next_{ token::EOS, spacing::null, location{} },
-      has_next_{ false }, index_{ 0 }
+      next_{ token::EOS, spacing::null, location{} }
 {
     advance();
 }
@@ -97,7 +108,6 @@ auto parser::parse_assembly(u8 const* /*data*/, usize /*size*/) -> assembly::ptr
 {
     return assembly::make();
 }
-
 
 auto parser::parse_source(std::string const& name, buffer const& data) -> program::ptr
 {
@@ -130,13 +140,13 @@ auto parser::parse_program() -> program::ptr
 
     while (!check(token::EOS))
     {
-        if (check(token::INCLUDE))
+        if (check(token::INCLUDE) || (check(token::USING) && ctx_->features() & feature::size64))
         {
-            prog->includes.push_back(parse_include());
+            prog->includes.push_back(parse_include_or_using());
         }
-        else if (check(token::INLINE))
+        else if (check(token::INLINE) || (check(token::INSERT) && ctx_->features() & feature::size64))
         {
-            parse_inline();
+            parse_inline_or_insert();
         }
         else if (check(token::SEMICOLON))
         {
@@ -151,22 +161,33 @@ auto parser::parse_program() -> program::ptr
     return prog;
 }
 
-auto parser::parse_include() -> include::ptr
+auto parser::parse_include_or_using() -> include::ptr
 {
     auto loc = tok_.pos;
-    expect(token::INCLUDE);
+
+    if (ctx_->features() & feature::size64)
+        expect(token::USING);
+    else
+        expect(token::INCLUDE);
+
     auto path = parse_expr_path();
     expect(token::SEMICOLON);
     return include::make(loc, std::move(path));
 }
 
-auto parser::parse_inline() -> void
+auto parser::parse_inline_or_insert() -> void
 {
     auto loc = tok_.pos;
-    expect(token::INLINE);
+
+    if (ctx_->features() & feature::size64)
+        expect(token::INSERT);
+    else
+        expect(token::INLINE);
+
     auto path = parse_expr_path();
-    expect(token::SEMICOLON);
+    // push before consuming ';' so the next token is lexed from the header
     ppr_.push_header(loc, path->value);
+    expect(token::SEMICOLON);
 }
 
 auto parser::parse_declaration() -> decl::ptr
@@ -185,12 +206,49 @@ auto parser::parse_declaration() -> decl::ptr
         return decl_dev_end::make(loc);
     }
 
+    if (check(token::NAMESPACE))
+    {
+        return parse_decl_namespace();
+    }
+
+    if (check(token::PRECACHE))
+    {
+        return parse_decl_precache();
+    }
+
     if (check(token::USINGTREE))
     {
         return parse_decl_usingtree();
     }
 
+    if (check(token::CLASS))
+    {
+        return parse_decl_class();
+    }
+
     return parse_decl_function();
+}
+
+auto parser::parse_decl_namespace() -> decl::ptr
+{
+    auto loc = tok_.pos;
+    expect(token::NAMESPACE);
+    auto name = parse_expr_identifier();
+    expect(token::SEMICOLON);
+    ppr_.ban_header(loc);
+    return decl_namespace::make(loc, std::move(name));
+}
+
+auto parser::parse_decl_precache() -> decl::ptr
+{
+    auto loc = tok_.pos;
+    expect(token::PRECACHE);
+    expect(token::LPAREN);
+    auto args = parse_expr_arguments();
+    expect(token::RPAREN);
+    expect(token::SEMICOLON);
+    ppr_.ban_header(loc);
+    return decl_precache::make(loc, std::move(args));
 }
 
 auto parser::parse_decl_usingtree() -> decl::ptr
@@ -205,10 +263,82 @@ auto parser::parse_decl_usingtree() -> decl::ptr
     return decl_usingtree::make(loc, std::move(name));
 }
 
+auto parser::parse_decl_class() -> decl::ptr
+{
+    auto loc = tok_.pos;
+    expect(token::CLASS);
+    auto name = parse_expr_identifier();
+
+    auto base = expr_identifier::make(loc, "");
+
+    if (check(token::COLON))
+    {
+        advance();
+        base = parse_expr_identifier();
+    }
+
+    expect(token::LBRACE);
+
+    auto body = decl_list::make(loc);
+
+    while (!check(token::RBRACE))
+    {
+        if (check(token::FUNCTION))
+        {
+            body->list.push_back(parse_decl_function());
+        }
+        else if (check(token::CONSTRUCTOR))
+        {
+            auto cloc = tok_.pos;
+            advance();
+            expect(token::LPAREN);
+            auto params = parse_expr_parameters();
+            expect(token::RPAREN);
+            auto cbody = parse_stmt_comp();
+            body->list.push_back(decl_function::make(cloc, expr_identifier::make(cloc, ""),
+                expr_identifier::make(cloc, "__constructor"), std::move(params), std::move(cbody), export_flags::export_none));
+        }
+        else if (check(token::DESTRUCTOR))
+        {
+            auto dloc = tok_.pos;
+            advance();
+            expect(token::LPAREN);
+            expect(token::RPAREN);
+            auto dbody = parse_stmt_comp();
+            body->list.push_back(decl_function::make(dloc, expr_identifier::make(dloc, ""),
+                expr_identifier::make(dloc, "__destructor"), expr_parameters::make(dloc), std::move(dbody), export_flags::export_none));
+        }
+        else if (check(token::VAR))
+        {
+            body->list.push_back(parse_decl_variable());
+        }
+        else
+        {
+            error("expected class member");
+        }
+    }
+
+    expect(token::RBRACE);
+    ppr_.ban_header(loc);
+    return decl_class::make(loc, std::move(name), std::move(base), std::move(body));
+}
+
+auto parser::parse_decl_variable() -> decl::ptr
+{
+    auto loc = tok_.pos;
+    expect(token::VAR);
+    auto name = parse_expr_identifier();
+    expect(token::SEMICOLON);
+    return decl_variable::make(loc, std::move(name));
+}
+
 auto parser::parse_decl_function() -> decl::ptr
 {
     auto loc = tok_.pos;
     auto flags = export_flags::export_none;
+
+    if(ctx_->features() & feature::size64)
+        expect(token::FUNCTION);
 
     if (check(token::AUTOEXEC))
     {
@@ -254,12 +384,25 @@ auto parser::parse_stmt() -> stmt::ptr
         case token::BREAK:            return parse_stmt_break();
         case token::CONTINUE:         return parse_stmt_continue();
         case token::RETURN:           return parse_stmt_return();
-        case token::PROFBEGIN:        return parse_stmt_prof_begin();
-        case token::PROFEND:          return parse_stmt_prof_end();
         case token::CONST:            return parse_stmt_const();
+
+        // Only keywords when they are being called; without a '(' they fall through and
+        // parse as an ordinary identifier, the same way 'size' is allowed to be a
+        // variable name. See parse_stmt in the gsc parser for the case this comes from.
+        case token::PROFBEGIN:
+            if (peek().type == token::LPAREN)
+                return parse_stmt_prof_begin();
+            break;
+        case token::PROFEND:
+            if (peek().type == token::LPAREN)
+                return parse_stmt_prof_end();
+            break;
+
         default:
-            return parse_stmt_call_or_assign();
+            break;
     }
+
+    return parse_stmt_call_or_assign();
 }
 
 auto parser::parse_stmt_or_dev() -> stmt::ptr
@@ -402,7 +545,7 @@ auto parser::parse_stmt_expr() -> stmt_expr::ptr
     return stmt_expr::make(loc, std::move(obj));
 }
 
-auto parser::parse_stmt_for_expr() -> stmt_expr::ptr
+auto parser::parse_stmt_for_expr() -> stmt::ptr
 {
     auto loc = tok_.pos;
 
@@ -410,6 +553,14 @@ auto parser::parse_stmt_for_expr() -> stmt_expr::ptr
     if (check(token::SEMICOLON) || check(token::RPAREN))
     {
         return stmt_expr::make(loc, expr_empty::make(loc));
+    }
+
+    // 'wait' is a statement, not an expression, so it needs its own arm here:
+    // 'for ( ;; wait 0.05 )' is idiomatic in original source.
+    if (check(token::WAIT))
+    {
+        advance();
+        return stmt_wait::make(loc, parse_expr());
     }
 
     // prefix increment
@@ -459,7 +610,14 @@ auto parser::parse_stmt_for_expr() -> stmt_expr::ptr
         return stmt_expr::make(loc, expr_decrement::make(loc, std::move(obj), false));
     }
 
-    error("expected assignment or increment/decrement in for-loop");
+    // A bare call. Engines without feature::waitframe reach 'waitframe()' this way, since
+    // there it is an ordinary function rather than a keyword.
+    if (obj->is<expr_call>() || obj->is<expr_method>())
+    {
+        return stmt_expr::make(loc, std::move(obj));
+    }
+
+    error("expected assignment, increment/decrement, call or wait in for-loop");
 }
 
 auto parser::parse_stmt_call_or_assign() -> stmt::ptr
@@ -615,7 +773,7 @@ auto parser::parse_stmt_waittill(expr::ptr obj) -> stmt::ptr
 
     if (match(token::COMMA))
     {
-        auto args = parse_expr_arguments_no_empty();
+        auto args = parse_expr_arguments_no_empty(); // TODO: only identifier | undefined
         expect(token::RPAREN);
         expect(token::SEMICOLON);
         return stmt_waittill::make(loc, std::move(obj), std::move(event), std::move(args));
@@ -947,10 +1105,16 @@ auto parser::parse_expr_equality() -> expr::ptr
 {
     auto lhs = parse_expr_relational();
 
-    while (check(token::EQ) || check(token::NE))
+    while (check(token::EQ) || check(token::NE) || check(token::SEQ) || check(token::SNE))
     {
         auto loc = tok_.pos;
-        auto op = check(token::EQ) ? expr_binary::op::eq : expr_binary::op::ne;
+        auto op = expr_binary::op::eq;
+
+        if (check(token::EQ))       op = expr_binary::op::eq;
+        else if (check(token::NE))  op = expr_binary::op::ne;
+        else if (check(token::SEQ)) op = expr_binary::op::seq;
+        else if (check(token::SNE)) op = expr_binary::op::sne;
+
         advance();
         auto rhs = parse_expr_relational();
         lhs = expr_binary::make(loc, std::move(lhs), std::move(rhs), op);
@@ -966,7 +1130,7 @@ auto parser::parse_expr_relational() -> expr::ptr
     while (check(token::LT) || check(token::LE) || check(token::GT) || check(token::GE))
     {
         auto loc = tok_.pos;
-        expr_binary::op op;
+        auto op = expr_binary::op{};
 
         switch (tok_.type)
         {
@@ -1024,7 +1188,7 @@ auto parser::parse_expr_multiplicative() -> expr::ptr
     while (check(token::STAR) || check(token::DIV) || check(token::MOD))
     {
         auto loc = tok_.pos;
-        expr_binary::op op;
+        auto op = expr_binary::op{};
 
         switch (tok_.type)
         {
@@ -1105,6 +1269,21 @@ auto parser::parse_expr_unary() -> expr::ptr
         return parse_expr_animation();
     }
 
+    if (check(token::BITAND) && ctx_->features() & feature::size64)
+    {
+        advance();
+        auto name_tok = expect(token::NAME);
+
+        if (check(token::DOUBLECOLON))
+        {
+            advance();
+            auto func_tok = expect(token::NAME);
+            return expr_reference::make(loc, expr_path::make(name_tok.pos, name_tok.data), expr_identifier::make(func_tok.pos, func_tok.data));
+        }
+
+        return expr_reference::make(loc, expr_path::make(loc), expr_identifier::make(name_tok.pos, name_tok.data));
+    }
+
     return parse_expr_primary();
 }
 
@@ -1136,6 +1315,9 @@ auto parser::parse_expr_primary() -> expr::ptr
                 auto func = expr_function::make(loc, std::move(path), std::move(name), std::move(args), call::mode::normal);
                 return parse_expr_postfix(expr_call::make(loc, std::move(func)));
             }
+
+            if (ctx_->features() & feature::size64)
+                error(loc, "use '&' for function references");
 
             return expr_reference::make(loc, std::move(path), std::move(name));
         }
@@ -1279,10 +1461,39 @@ auto parser::parse_expr_primary() -> expr::ptr
             return parse_expr_postfix(std::move(base));
         }
 
-        case token::SIZE:
+        case token::WORLD:
         {
             advance();
-            return expr_identifier::make(loc, "size");
+            auto base = expr_world::make(loc);
+            return parse_expr_postfix(std::move(base));
+        }
+
+        case token::CLASSES:
+        {
+            advance();
+            auto base = expr_classes::make(loc);
+            return parse_expr_postfix(std::move(base));
+        }
+
+        case token::NEW:
+        {
+            advance();
+            auto nname = parse_expr_identifier();
+            expect(token::LPAREN);
+            auto args = parse_expr_arguments();
+            expect(token::RPAREN);
+            return expr_new::make(loc, std::move(nname));
+        }
+
+        case token::SIZE:
+        case token::PROFBEGIN:
+        case token::PROFEND:
+        {
+            // Not a call here, so it is a plain identifier. tok_.data still holds the
+            // spelling the lexer lowercased before turning it into a keyword.
+            auto name = tok_.data;
+            advance();
+            return parse_expr_postfix(expr_identifier::make(loc, std::move(name)));
         }
 
         default:
@@ -1312,6 +1523,9 @@ auto parser::parse_expr_object() -> expr::ptr
                 auto func = expr_function::make(loc, std::move(path), std::move(name), std::move(args), call::mode::normal);
                 return parse_expr_postfix(expr_call::make(loc, std::move(func)));
             }
+
+            if (ctx_->features() & feature::size64)
+                error(loc, "use '&' for function references");
 
             return expr_reference::make(loc, std::move(path), std::move(name));
         }
@@ -1351,6 +1565,9 @@ auto parser::parse_expr_object() -> expr::ptr
                 auto func = expr_function::make(loc, std::move(path), std::move(name), std::move(args), call::mode::normal);
                 return parse_expr_postfix(expr_call::make(loc, std::move(func)));
             }
+
+            if (ctx_->features() & feature::size64)
+                error(loc, "use '&' for function references");
 
             return expr_reference::make(loc, std::move(path), std::move(name));
         }
@@ -1493,10 +1710,7 @@ auto parser::parse_expr_function(call::mode mode) -> call::ptr
         expect(token::LPAREN);
         auto args = parse_expr_arguments();
         expect(token::RPAREN);
-        return expr_function::make(loc,
-            expr_path::make(path_tok.pos, path_tok.data),
-            expr_identifier::make(name_tok.pos, name_tok.data),
-            std::move(args), mode);
+        return expr_function::make(loc, expr_path::make(path_tok.pos, path_tok.data), expr_identifier::make(name_tok.pos, name_tok.data), std::move(args), mode);
     }
 
     if (check(token::PATH) && peek().type == token::DOUBLECOLON)
@@ -1507,20 +1721,14 @@ auto parser::parse_expr_function(call::mode mode) -> call::ptr
         expect(token::LPAREN);
         auto args = parse_expr_arguments();
         expect(token::RPAREN);
-        return expr_function::make(loc,
-            expr_path::make(path_tok.pos, path_tok.data),
-            expr_identifier::make(name_tok.pos, name_tok.data),
-            std::move(args), mode);
+        return expr_function::make(loc, expr_path::make(path_tok.pos, path_tok.data), expr_identifier::make(name_tok.pos, name_tok.data), std::move(args), mode);
     }
 
     auto name_tok = expect(token::NAME);
     expect(token::LPAREN);
     auto args = parse_expr_arguments();
     expect(token::RPAREN);
-    return expr_function::make(loc,
-        expr_path::make(loc),
-        expr_identifier::make(name_tok.pos, name_tok.data),
-        std::move(args), mode);
+    return expr_function::make(loc, expr_path::make(loc), expr_identifier::make(name_tok.pos, name_tok.data), std::move(args), mode);
 }
 
 auto parser::parse_expr_pointer(call::mode mode) -> call::ptr
@@ -1531,6 +1739,17 @@ auto parser::parse_expr_pointer(call::mode mode) -> call::ptr
     auto func = parse_expr();
     expect(token::RBRACKET);
     expect(token::RBRACKET);
+
+    if (check(token::ARROW))
+    {
+        advance();
+        auto name = parse_expr_identifier_nosize();
+        expect(token::LPAREN);
+        auto args = parse_expr_arguments();
+        expect(token::RPAREN);
+        return expr_member::make(loc, std::move(func), std::move(name), std::move(args), mode);
+    }
+
     expect(token::LPAREN);
     auto args = parse_expr_arguments();
     expect(token::RPAREN);
@@ -1580,6 +1799,23 @@ auto parser::parse_expr_parameters() -> expr_parameters::ptr
 
     auto parse_param = [&]() -> expr::ptr
     {
+        // &name
+        if (check(token::BITAND) && ctx_->features() & feature::size64)
+        {
+            auto rloc = tok_.pos;
+            advance();
+            auto name = parse_expr_identifier();
+            return expr_reference::make(rloc, expr_path::make(rloc), std::move(name));
+        }
+
+        // ...
+        if (check(token::ELLIPSIS) && ctx_->features() & feature::size64)
+        {
+            auto tok = expect(token::ELLIPSIS);
+            return expr_ellipsis::make(tok.pos);
+        }
+
+        // name | name = expr
         auto id = parse_expr_identifier();
 
         if (match(token::ASSIGN))
@@ -1596,6 +1832,18 @@ auto parser::parse_expr_parameters() -> expr_parameters::ptr
     while (match(token::COMMA))
     {
         params->list.push_back(parse_param());
+    }
+
+    // if 64size, ensure ... at end of parameter list
+    if (ctx_->features() & feature::size64)
+    {
+        for (const auto& param : params->list)
+        {
+            if (param->is<expr_ellipsis>() && param != params->list.back())
+            {
+                error(param->loc(), "'...' must be the last parameter");
+            }
+        }
     }
 
     return params;
@@ -1645,8 +1893,20 @@ auto parser::parse_expr_getdvarint() -> expr::ptr
     auto loc = tok_.pos;
     expect(token::GETDVARINT);
     expect(token::LPAREN);
-    auto arg = parse_expr();
+    auto arg = parse_expr_arguments();
     expect(token::RPAREN);
+
+    if (ctx_->features() & feature::size64)
+    {
+        if (arg->list.size() != 1 && arg->list.size() != 2)
+            error(loc, "expected 1 or 2 arguments to getdvarint");
+    }
+    else
+    {
+        if (arg->list.size() != 1)
+            error(loc, "expected 1 argument to getdvarint");
+    }
+
     return expr_getdvarint::make(loc, std::move(arg));
 }
 
@@ -1655,8 +1915,20 @@ auto parser::parse_expr_getdvarfloat() -> expr::ptr
     auto loc = tok_.pos;
     expect(token::GETDVARFLOAT);
     expect(token::LPAREN);
-    auto arg = parse_expr();
+    auto arg = parse_expr_arguments();
     expect(token::RPAREN);
+
+    if (ctx_->features() & feature::size64)
+    {
+        if (arg->list.size() != 1 && arg->list.size() != 2)
+            error(loc, "expected 1 or 2 arguments to getdvarfloat");
+    }
+    else
+    {
+        if (arg->list.size() != 1)
+            error(loc, "expected 1 argument to getdvarfloat");
+    }
+
     return expr_getdvarfloat::make(loc, std::move(arg));
 }
 
@@ -1889,11 +2161,21 @@ auto parser::parse_expr_paren_or_vector() -> expr::ptr
         expect(token::COMMA);
         auto third = parse_expr();
         expect(token::RPAREN);
-        return expr_vector::make(loc, std::move(first), std::move(second), std::move(third));
+        return parse_expr_postfix(expr_vector::make(loc, std::move(first), std::move(second), std::move(third)));
     }
 
     expect(token::RPAREN);
-    return expr_paren::make(loc, std::move(first));
+
+    // A parenthesised expression can be the base of a field, array or method access:
+    // '( GetAIArray() ).size', '( self GetPlayerAngles() )[ 1 ]', '( a b() ) c()'. The
+    // parens are only grouping there, so the chain is built on the inner expression and
+    // '(X).f' compiles exactly like 'X.f' — no wrapper for the compiler to see through.
+    // If nothing follows, parse_expr_postfix hands the same node straight back and the
+    // parens are kept so the printer can put them where the source had them.
+    auto const* inner = first.get();
+    auto node = parse_expr_postfix(std::move(first));
+
+    return node.get() == inner ? expr_paren::make(loc, std::move(node)) : std::move(node);
 }
 
 auto parser::parse_expr_reference() -> expr::ptr
@@ -2070,7 +2352,7 @@ auto parser::parse_assign_op() -> expr_assign::op
     }
 }
 
-auto parser::is_assign_op() -> bool
+auto parser::is_assign_op() const -> bool
 {
     switch (tok_.type)
     {
@@ -2141,7 +2423,7 @@ auto parser::is_call_or_method(expr const& e) -> bool
     return e.is<expr_call>() || e.is<expr_method>();
 }
 
-auto parser::check(token::kind k) -> bool
+auto parser::check(token::kind k) const -> bool
 {
     return tok_.type == k;
 }
@@ -2161,8 +2443,7 @@ auto parser::expect(token::kind k) -> token
 {
     if (tok_.type != k)
     {
-        throw comp_error(tok_.pos, std::format("expected '{}', got '{}'",
-            token(k, spacing::null, location{}).to_string(), tok_.to_string()));
+        throw comp_error(tok_.pos, std::format("expected '{}', got '{}'", token::name(k), tok_.to_string()));
     }
 
     return advance();
@@ -2208,7 +2489,28 @@ auto parser::read_token() -> token
 
         if (it != keyword_map.end())
         {
-            tok.type = it->second;
+            if (!(ctx_->features() & feature::size64))
+            {
+                switch (it->second)
+                {
+                    case token::VAR:
+                    case token::CLASS:
+                    case token::CONSTRUCTOR:
+                    case token::DESTRUCTOR:
+                    case token::FUNCTION:
+                    case token::WORLD:
+                    case token::CLASSES:
+                    case token::NEW:
+                        break;
+                    default:
+                        tok.type = it->second;
+                        break;
+                }
+            }
+            else
+            {
+                tok.type = it->second;
+            }
         }
     }
 
@@ -2220,7 +2522,7 @@ auto parser::error(location const& loc, std::string const& msg) -> void
     throw comp_error(loc, msg);
 }
 
-auto parser::error(std::string const& msg) -> void
+auto parser::error(std::string const& msg) const -> void
 {
     throw comp_error(tok_.pos, msg);
 }

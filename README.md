@@ -37,7 +37,7 @@ A utility to compile & decompile IW engine game scripts.
 
     ``-g, --game <game>`` [REQUIRED] one of: `iw5`, `iw6`, `iw7`, `iw8`, `iw9`, `s1`, `s2`, `s4`, `h1`, `h2`, `t6` `t7` `t8` `t9` `jup`
 
-    ``-s, --system <system>`` [REQUIRED] one of: `pc`, `ps3`, `ps4`, `ps5`, `xb2` (*360*), `xb3` (*One*), `xb4` (*Series X|S*), `wiiu`
+    ``-s, --system <system>`` [REQUIRED] one of: `pc`, `pc32`, `pc64`, `ps3`, `ps4`, `ps5`, `xb2` (*360*), `xb3` (*One*), `xb4` (*Series X|S*), `wiiu`
 
     ``-i, --instance <instance>`` Instance to use on games with .gsc/.csc (server, client). (default: server)
 
@@ -87,7 +87,7 @@ note: for PS3 & Xbox 360 `.gscbin` files *(compressedLen, len, bytecodeLen)* are
 - install [*premake5*](https://premake.github.io) on your system PATH
 - clone this repository
 - update the submodules ``git submodule update --init --recursive``
-- run prebuild script ``premake5 vs2022`` (windows) or ``premake5 gmake2`` (linux/macos)
+- run prebuild script ``premake5 vs2022`` (windows) or ``premake5 gmake`` (linux/macos)
 
 ## Contribute
 If you like my work, consider sponsoring/donating! Would allow me to spend more time adding new features & fixing bugs.

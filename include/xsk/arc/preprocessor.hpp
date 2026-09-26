@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -25,9 +25,9 @@ private:
     std::vector<token> expr_;
     std::string date_;
     std::string time_;
-    usize curr_expr_;
-    u32 expand_;
-    u32 skip_;
+    usize curr_expr_{ 0 };
+    u32 expand_{ 0 };
+    u32 skip_{ 0 };
 
 public:
     preprocessor(context* ctx, std::string const& name, u8 const* data, usize size);
@@ -57,11 +57,18 @@ private:
     auto read_directive_line(token& tok) -> void;
     auto read_directive_include(token& hash, token& name) -> void;
     auto read_directive_inline(token& hash, token& name) -> void;
+    auto read_directive_insert(token& hash, token& name) -> void;
+    auto read_directive_using(token& hash, token& name) -> void;
+    auto read_directive_precache(token& hash, token& name) -> void;
     auto read_directive_usingtree(token& hash, token& name) -> void;
+    auto read_directive_namespace(token& hash, token& name) -> void;
     auto read_hashtoken(token& hash) -> void;
     auto read_hashtoken_animtree(token& hash, token& name) -> void;
     auto read_hashtoken_hashstr(token& hash, token& name) -> void;
+    auto expandable(token& tok) -> define*;
+    auto paste(token const& lhs, token const& rhs) -> token;
     auto expand(token& tok, define& def) -> void;
+    auto expand_arg(std::vector<token> const& arg) -> std::vector<token>;
     auto expand_params(token& tok, define& def) -> std::vector<std::vector<token>>;
     auto expect(token& tok, token::kind expected, spacing space = spacing::none) -> void;
     auto evaluate() -> bool;
@@ -72,20 +79,20 @@ private:
     auto eval_check(token::kind type) -> bool;
     auto eval_match(token::kind type) -> bool;
     auto eval_consume(token::kind type, std::string_view msg);
-    auto eval_expr() -> i32;
-    auto eval_expr_or() -> i32;
-    auto eval_expr_and() -> i32;
-    auto eval_expr_bwor() -> i32;
-    auto eval_expr_bwexor() -> i32;
-    auto eval_expr_bwand() -> i32;
-    auto eval_expr_eq() -> i32;
-    auto eval_expr_lge() -> i32;
-    auto eval_expr_shift() -> i32;
-    auto eval_expr_add() -> i32;
-    auto eval_expr_factor() -> i32;
-    auto eval_expr_unary() -> i32;
-    auto eval_expr_primary() -> i32;
-    auto get_local_time(std::tm& ltime) -> void;
+    auto eval_expr() -> i64;
+    auto eval_expr_or() -> i64;
+    auto eval_expr_and() -> i64;
+    auto eval_expr_bwor() -> i64;
+    auto eval_expr_bwexor() -> i64;
+    auto eval_expr_bwand() -> i64;
+    auto eval_expr_eq() -> i64;
+    auto eval_expr_lge() -> i64;
+    auto eval_expr_shift() -> i64;
+    auto eval_expr_add() -> i64;
+    auto eval_expr_factor() -> i64;
+    auto eval_expr_unary() -> i64;
+    auto eval_expr_primary() -> i64;
+    auto get_local_time(std::tm& l_time) -> void;
     auto get_date_define(std::tm* time_p) -> void;
     auto get_time_define(std::tm* time_p) -> void;
 };

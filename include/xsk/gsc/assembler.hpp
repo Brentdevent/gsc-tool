@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -15,12 +15,12 @@ struct assembler
 {
 private:
     context const* ctx_;
-    function const* func_;
-    assembly const* assembly_;
+    function const* func_{};
+    assembly const* assembly_{};
     utils::writer script_;
     utils::writer stack_;
     utils::writer devmap_;
-    u32 devmap_count_;
+    u32 devmap_count_{};
 
 public:
     explicit assembler(context const* ctx);
@@ -41,7 +41,7 @@ private:
     auto assemble_offset(i32 offs) -> void;
     auto resolve_function(std::string const& name) const -> usize;
     auto resolve_label(std::string const& name) const -> usize;
-    auto encrypt_string(std::string const& str) -> std::string;
+    auto encrypt_string(std::string const& str) const -> std::string;
 };
 
 } // namespace xsk::gsc

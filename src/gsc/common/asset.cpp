@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -9,7 +9,7 @@
 namespace xsk::gsc
 {
 
-auto asset::serialize() -> std::vector<u8>
+auto asset::serialize() const -> std::vector<u8>
 {
     auto data = std::vector<u8>{};
 

@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -9,12 +9,12 @@
 namespace xsk::utils
 {
 
-writer::writer(bool swap) : size_{ default_size }, swap_{ swap }
+writer::writer(const bool swap) : size_{ default_size }, swap_{ swap }
 {
     data_ = new u8[size_]();
 }
 
-writer::writer(usize size, bool swap) : size_{ size }, swap_{ swap }
+writer::writer(const usize size, const bool swap) : size_{ size }, swap_{ swap }
 {
     data_ = new u8[size_]();
 }
@@ -30,7 +30,8 @@ auto writer::clear() -> void
     pos_ = 0;
 }
 
-template<> auto writer::write(i8 data) -> void
+template <>
+auto writer::write(const i8 data) -> void
 {
     if (pos_ + 1 > size_)
         throw error("writer: out of bounds");
@@ -39,7 +40,8 @@ template<> auto writer::write(i8 data) -> void
     pos_ += 1;
 }
 
-template<> auto writer::write(u8 data) -> void
+template <>
+auto writer::write(const u8 data) -> void
 {
     if (pos_ + 1 > size_)
         throw error("writer: out of bounds");
@@ -48,7 +50,8 @@ template<> auto writer::write(u8 data) -> void
     pos_ += 1;
 }
 
-template<> auto writer::write(i16 data) -> void
+template <>
+auto writer::write(i16 data) -> void
 {
     if (pos_ + 2 > size_)
         throw error("writer: out of bounds");
@@ -66,7 +69,8 @@ template<> auto writer::write(i16 data) -> void
     pos_ += 2;
 }
 
-template<> auto writer::write(u16 data) -> void
+template <>
+auto writer::write(u16 data) -> void
 {
     if (pos_ + 2 > size_)
         throw error("writer: out of bounds");
@@ -84,7 +88,8 @@ template<> auto writer::write(u16 data) -> void
     pos_ += 2;
 }
 
-template<> auto writer::write(i32 data) -> void
+template <>
+auto writer::write(i32 data) -> void
 {
     if (pos_ + 4 > size_)
         throw error("writer: out of bounds");
@@ -104,7 +109,8 @@ template<> auto writer::write(i32 data) -> void
     pos_ += 4;
 }
 
-template<> auto writer::write(u32 data) -> void
+template <>
+auto writer::write(u32 data) -> void
 {
     if (pos_ + 4 > size_)
         throw error("writer: out of bounds");
@@ -124,7 +130,8 @@ template<> auto writer::write(u32 data) -> void
     pos_ += 4;
 }
 
-template<> auto writer::write(i64 data) -> void
+template <>
+auto writer::write(i64 data) -> void
 {
     if (pos_ + 8 > size_)
         throw error("writer: out of bounds");
@@ -148,7 +155,8 @@ template<> auto writer::write(i64 data) -> void
     pos_ += 8;
 }
 
-template<> auto writer::write(u64 data) -> void
+template <>
+auto writer::write(u64 data) -> void
 {
     if (pos_ + 8 > size_)
         throw error("writer: out of bounds");
@@ -172,7 +180,8 @@ template<> auto writer::write(u64 data) -> void
     pos_ += 8;
 }
 
-template<> auto writer::write(f32 data) -> void
+template <>
+auto writer::write(f32 data) -> void
 {
     if (pos_ + 4 > size_)
         throw error("writer: out of bounds");
@@ -234,19 +243,19 @@ auto writer::is_avail() const -> bool
     return pos_ < size_;
 }
 
-auto writer::seek(usize size) -> void
+auto writer::seek(const usize size) -> void
 {
     if (pos_ + size <= size_) pos_ += size;
 }
 
-auto writer::seek_neg(usize size) -> void
+auto writer::seek_neg(const usize size) -> void
 {
     if (pos_ >= size) pos_ -= size;
 }
 
-auto writer::align(usize size) -> usize
+auto writer::align(const usize size) -> usize
 {
-    auto pos = pos_;
+    auto const pos = pos_;
 
     pos_ = (pos_ + (size - 1)) & ~(size - 1);
 
@@ -268,7 +277,7 @@ auto writer::pos() const -> usize
     return pos_;
 }
 
-auto writer::pos(usize pos) -> void
+auto writer::pos(const usize pos) -> void
 {
     if (pos <= size_) pos_ = pos;
 }

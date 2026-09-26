@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -28,17 +28,22 @@ auto zlib::compress(std::vector<u8> const& data) -> std::vector<u8>
     throw error(std::format("zlib compress error {}", result));
 }
 
-auto zlib::decompress(std::vector<u8> const& data, u32 length) -> std::vector<u8>
+auto zlib::decompress(std::vector<u8> const& data, const u32 length) -> std::vector<u8>
 {
     auto output = std::vector<u8>{};
     output.resize(length);
 
-    auto result = uncompress(reinterpret_cast<Bytef*>(output.data()), reinterpret_cast<uLongf*>(&length), reinterpret_cast<const Bytef*>(data.data()), static_cast<uLong>(data.size()));
+    // uLongf is 64-bit on LP64, do not alias it over a u32
+    auto size = static_cast<uLongf>(length);
+    auto result = uncompress(reinterpret_cast<Bytef*>(output.data()), &size, reinterpret_cast<const Bytef*>(data.data()), static_cast<uLong>(data.size()));
 
     if (result == Z_OK)
+    {
+        output.resize(size);
         return output;
+    }
 
     throw error(std::format("zlib decompress error {}", result));
 }
 
-} // namespace xsk::uitls
+} // namespace xsk::utils

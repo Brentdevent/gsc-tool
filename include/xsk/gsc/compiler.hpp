@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -16,6 +16,7 @@ private:
     context* ctx_;
     assembly::ptr assembly_;
     function::ptr function_;
+    std::vector<std::string> includes_;
     std::vector<std::string> localfuncs_;
     std::vector<std::string> stackframe_;
     std::unordered_map<std::string, expr const*> constants_;
@@ -23,13 +24,13 @@ private:
     std::vector<scope*> break_blks_;
     std::vector<scope*> continue_blks_;
     std::string animname_;
-    sourcepos debug_pos_;
-    usize index_;
-    usize label_idx_;
-    bool can_break_;
-    bool can_continue_;
-    bool developer_thread_;
-    bool animload_;
+    sourcepos debug_pos_{};
+    usize index_{};
+    usize label_idx_{};
+    bool can_break_{};
+    bool can_continue_{};
+    bool developer_thread_{};
+    bool animload_{};
 
 public:
     explicit compiler(context* ctx);
@@ -38,6 +39,7 @@ public:
 
 private:
     auto emit_program(program const& prog) -> void;
+    auto drop_dev() const -> bool;
     auto emit_decl(decl const& dec) -> void;
     auto emit_decl_usingtree(decl_usingtree const& animtree) -> void;
     auto emit_decl_constant(decl_constant const& constant) -> void;
@@ -145,10 +147,11 @@ private:
     auto variable_initialize(expr_identifier const& exp, scope& scp) -> u8;
     auto variable_create(expr_identifier const& exp, scope& scp) -> u8;
     auto variable_access(expr_identifier const& exp, scope& scp) -> u8;
+    auto is_includecall(std::string const& name, std::string& path) const -> bool;
     auto resolve_function_type(expr_function const& exp, std::string& path) -> call::type;
     auto resolve_reference_type(expr_reference const& exp, std::string& path, bool& method) -> call::type;
     auto is_constant_condition(expr const& exp) -> bool;
-    auto insert_label(std::string const& label) -> void;
+    auto insert_label(std::string const& name) -> void;
     auto create_label() -> std::string;
     auto insert_label() -> std::string;
 };

@@ -1,7 +1,10 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
+
+#include <sstream>
+#include <regex>
 
 #include "xsk/stdinc.hpp"
 #include "xsk/utils/string.hpp"
@@ -26,11 +29,7 @@ auto string::hex_to_dec(char const* str) -> std::string
 
 auto string::iequals(std::string const& a, std::string const& b) -> bool
 {
-    return (a.size() == b.size()) && std::equal(a.begin(), a.end(), b.begin(), b.end(),
-        [](char a, char b)
-        {
-            return std::tolower(a) == std::tolower(b);
-        });
+    return (a.size() == b.size()) && std::equal(a.begin(), a.end(), b.begin(), b.end(), [](char a, char b) { return std::tolower(a) == std::tolower(b); });
 }
 
 auto string::is_number(std::string const& str) -> bool
@@ -117,9 +116,9 @@ auto string::fordslash(std::string const& str) -> std::string
 {
     auto data = std::string{ str.begin(), str.end() };
 
-    for (auto i = 0u; i < data.size(); i++)
+    for (char& i : data)
     {
-        if (data[i] == '\\') data[i] = '/';
+        if (i == '\\') i = '/';
     }
 
     return data;
@@ -129,9 +128,9 @@ auto string::backslash(std::string const& str) -> std::string
 {
     auto data = std::string{ str.begin(), str.end() };
 
-    for (auto i = 0u; i < data.size(); i++)
+    for (char& i : data)
     {
-        if (data[i] ==  '/') data[i] = '\\';
+        if (i == '/') i = '\\';
     }
 
     return data;
@@ -163,7 +162,7 @@ auto string::unquote(std::string const& str) -> std::string
     return str;
 }
 
-auto string::split(std::string& str, char delimiter) -> std::vector<std::string>
+auto string::split(std::string& str, const char delimiter) -> std::vector<std::string>
 {
     auto tokens = std::vector<std::string>{};
     auto ss = std::stringstream{ str };
@@ -177,7 +176,7 @@ auto string::split(std::string& str, char delimiter) -> std::vector<std::string>
     return tokens;
 }
 
-auto string::clean_buffer_lines(u8 const* data, usize size) -> std::vector<std::string>
+auto string::clean_buffer_lines(u8 const* data, const usize size) -> std::vector<std::string>
 {
     auto lines = std::vector<std::string>{};
     auto current = std::string{};
@@ -217,15 +216,20 @@ auto string::float_string(float value, bool toint) -> std::string
 {
     enum flags_t : u8 { none = 0, negative = 1, integer = 2, has_exp = 4, exp_neg = 8 };
 
-    auto str = std::format("{:g}", value);
+    // '{}' is shortest-round-trip for float; '{:g}' caps at 6 significant digits and
+    // turns 17346.26 into 17346.3, which no longer compiles to the same f32.
+    auto str = std::format("{}", value);
 
     auto flags = integer | (str[0] == '-' ? negative : none);
 
     for (auto i = 1u; i < str.size(); i++)
     {
-        if (str[i] == '-') flags |= exp_neg;
-        else if (str[i] == 'e') flags |= has_exp;
-        else if ( str[i] == '.') flags &= ~integer;
+        if (str[i] == '-')
+            flags |= exp_neg;
+        else if (str[i] == 'e')
+            flags |= has_exp;
+        else if (str[i] == '.')
+            flags &= ~integer;
     }
 
     if (!(flags & has_exp))

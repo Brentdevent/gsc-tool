@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -11,7 +11,7 @@
 namespace xsk::gsc
 {
 
-lexer::lexer(context const* ctx, std::string const& name, char const* data, usize size) : ctx_{ ctx }, reader_{ data, size }, loc_{ &name }, buflen_{ 0 }, spacing_{ spacing::null }, indev_{ false }
+lexer::lexer(context const* ctx, std::string const& name, char const* data, usize size) : ctx_{ ctx }, reader_{ data, size }, loc_{ &name }
 {
 }
 
@@ -44,7 +44,7 @@ auto lexer::lex() -> token
         if (last == 0 || last == '\n')
             spacing_ = spacing::null;
         else if (last == ' ' || last == '\t')
-            spacing_ = (spacing_ == spacing::null) ? spacing::empty : spacing::back;
+            spacing_ = (spacing_ == spacing::null || spacing_ == spacing::empty) ? spacing::empty : spacing::back;
         else
             spacing_ = spacing::none;
 
@@ -77,35 +77,12 @@ auto lexer::lex() -> token
                     if (indev_)
                         throw comp_error(loc_, "cannot recurse devblock ('/#')");
 
-                    if ((ctx_->build() & build::dev_blocks) != build::prod)
-                    {
-                        indev_ = true;
-                        return token{ token::DEVBEGIN, spacing_, loc_ };
-                    }
-                    else
-                    {
-                        auto first = true;
-
-                        while (true)
-                        {
-                            if (reader_.ended())
-                                throw comp_error(loc_, "unmatched devblock start ('/#')");
-
-                            if (curr == '\n')
-                            {
-                                loc_.lines();
-                                loc_.step();
-                            }
-                            else if (last == '#' && curr == '/' && !first)
-                            {
-                                advance();
-                                break;
-                            }
-
-                            advance();
-                            first = false;
-                        }
-                    }
+                    // Always a token, in both builds. A prod build drops the block in the
+                    // compiler instead of skipping the text here, so what is inside still
+                    // goes through the lexer and a '#/' written inside a comment cannot
+                    // end the block early.
+                    indev_ = true;
+                    return token{ token::DEVBEGIN, spacing_, loc_ };
                 }
                 else if (last == '@')
                 {
@@ -145,7 +122,7 @@ auto lexer::lex() -> token
                             loc_.lines();
                             loc_.step();
                         }
-                        else if (last  == '*' && curr == '/' && !first)
+                        else if (last == '*' && curr == '/' && !first)
                         {
                             advance();
                             break;
@@ -339,7 +316,7 @@ auto lexer::lex() -> token
                 throw comp_error(loc_, std::format("bad token: '{}'", last));
         }
 
-lex_string:
+    lex_string:
         while (true)
         {
             if (reader_.ended())
@@ -381,11 +358,11 @@ lex_string:
         }
 
         if (localize)
-            return token{ token::ISTRING, spacing_, loc_, std::string{ &buffer_[0], buflen_ } };
+            return token{ token::ISTRING, spacing_, loc_, std::string{ buffer_.data(), buflen_ } };
 
-        return token{ token::STRING, spacing_, loc_, std::string{ &buffer_[0], buflen_ } };
+        return token{ token::STRING, spacing_, loc_, std::string{ buffer_.data(), buflen_ } };
 
-lex_name:
+    lex_name:
         push(last);
 
         while (true)
@@ -415,12 +392,12 @@ lex_name:
             if (buffer_[buflen_ - 1] == '/')
                 throw comp_error(loc_, "invalid path end '\\'");
 
-            return token{ token::PATH, spacing_, loc_, ctx_->make_token(std::string_view{ &buffer_[0], buflen_ }) };
+            return token{ token::PATH, spacing_, loc_, ctx_->make_token(std::string_view{ buffer_.data(), buflen_ }) };
         }
 
-        return token{ token::NAME, spacing_, loc_, std::string{ &buffer_[0], buflen_ } };
+        return token{ token::NAME, spacing_, loc_, std::string{ buffer_.data(), buflen_ } };
 
-lex_number:
+    lex_number:
         if (last == '.' || last != '0' || (last == '0' && (curr != 'o' && curr != 'b' && curr != 'x')))
         {
             push(last);
@@ -458,12 +435,15 @@ lex_number:
                     push(curr);
                     advance();
 
-                    // TODO: check stream end
-                    if (curr == '+' || curr == '-')
+                    if (!reader_.ended() && (curr == '+' || curr == '-'))
                     {
                         push(curr);
                         advance();
                     }
+
+                    if (reader_.ended() || !(curr > 47 && curr < 58))
+                        throw comp_error(loc_, "invalid number literal");
+
                     continue;
                 }
                 else if (!(curr > 47 && curr < 58))
@@ -479,11 +459,12 @@ lex_number:
             if (dot > 1 || flt > 1 || (flt && buffer_[buflen_ - 1] != 'f'))
                 throw comp_error(loc_, "invalid number literal");
 
-            // TODO: exp can be int or float
+            // an exponent always yields a float, as in C: 1e5 is a floating literal
+            // even though its value is integral
             if (dot || flt || exp)
-                return token{ token::FLT, spacing_, loc_, std::string{ &buffer_[0], buflen_ } };
+                return token{ token::FLT, spacing_, loc_, std::string{ buffer_.data(), buflen_ } };
 
-            return token{ token::INT, spacing_, loc_, std::string{ &buffer_[0], buflen_ } };
+            return token{ token::INT, spacing_, loc_, std::string{ buffer_.data(), buflen_ } };
         }
         else if (curr == 'o')
         {
@@ -515,7 +496,7 @@ lex_number:
 
             push('\0');
 
-            return token{ token::INT, spacing_, loc_, utils::string::oct_to_dec(&buffer_[0]) };
+            return token{ token::INT, spacing_, loc_, utils::string::oct_to_dec(buffer_.data()) };
         }
         else if (curr == 'b')
         {
@@ -549,7 +530,7 @@ lex_number:
 
             push('\0');
 
-            return token{ token::INT, spacing_, loc_, utils::string::bin_to_dec(&buffer_[0]) };
+            return token{ token::INT, spacing_, loc_, utils::string::bin_to_dec(buffer_.data()) };
         }
         else if (curr == 'x')
         {
@@ -583,7 +564,7 @@ lex_number:
 
             push('\0');
 
-            return token{ token::INT, spacing_, loc_, utils::string::hex_to_dec(&buffer_[0]) };
+            return token{ token::INT, spacing_, loc_, utils::string::hex_to_dec(buffer_.data()) };
         }
 
         throw error("UNEXPECTED LEXER INTERNAL ERROR");
@@ -625,8 +606,7 @@ auto lexer::linewrap() -> void
             reader_.position += 3;
             reader_.available -= 3;
         }
-
-        if ((reader_.position[1] == '\n'))
+        else // '\n', the only other option the check above lets through
         {
             if (reader_.available == 2)
                 throw comp_error(loc_, "invalid token ('\\')");

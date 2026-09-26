@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -18,8 +18,8 @@ private:
     preprocessor ppr_;
     token tok_;
     token next_;
-    bool has_next_;
-    u32 index_;
+    bool has_next_{ false };
+    u32 index_{ 0 };
 
 public:
     parser(context* ctx);
@@ -32,11 +32,15 @@ public:
 
 private:
     auto parse_program() -> program::ptr;
-    auto parse_include() -> include::ptr;
-    auto parse_inline() -> void;
+    auto parse_include_or_using() -> include::ptr;
+    auto parse_inline_or_insert() -> void;
     auto parse_declaration() -> decl::ptr;
+    auto parse_decl_namespace() -> decl::ptr;
+    auto parse_decl_precache() -> decl::ptr;
     auto parse_decl_usingtree() -> decl::ptr;
     auto parse_decl_function() -> decl::ptr;
+    auto parse_decl_variable() -> decl::ptr;
+    auto parse_decl_class() -> decl::ptr;
     auto parse_stmt() -> stmt::ptr;
     auto parse_stmt_or_dev() -> stmt::ptr;
     auto parse_stmt_or_dev_list() -> stmt_list::ptr;
@@ -44,7 +48,7 @@ private:
     auto parse_stmt_comp() -> stmt_comp::ptr;
     auto parse_stmt_dev() -> stmt::ptr;
     auto parse_stmt_expr() -> stmt_expr::ptr;
-    auto parse_stmt_for_expr() -> stmt_expr::ptr;
+    auto parse_stmt_for_expr() -> stmt::ptr;
     auto parse_stmt_call_or_assign() -> stmt::ptr;
     auto parse_stmt_const() -> stmt::ptr;
     auto parse_stmt_endon(expr::ptr obj) -> stmt::ptr;
@@ -117,19 +121,19 @@ private:
     auto parse_expr_animation() -> expr::ptr;
     auto parse_switch(stmt_switch& stm) -> void;
     auto parse_assign_op() -> expr_assign::op;
-    auto is_assign_op() -> bool;
+    auto is_assign_op() const -> bool;
     auto is_call_start() -> bool;
     auto is_lvalue(expr const& e) -> bool;
     auto is_no_call_chain(expr const& e) -> bool;
     auto is_call_or_method(expr const& e) -> bool;
-    auto check(token::kind k) -> bool;
+    auto check(token::kind k) const -> bool;
     auto match(token::kind k) -> bool;
     auto expect(token::kind k) -> token;
     auto peek() -> token&;
     auto advance() -> token;
     auto read_token() -> token;
     [[noreturn]] auto error(location const& loc, std::string const& msg) -> void;
-    [[noreturn]] auto error(std::string const& msg) -> void;
+    [[noreturn]] auto error(std::string const& msg) const -> void;
 };
 
 } // namespace xsk::arc

@@ -1,9 +1,11 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
 
 #pragma once
+
+#include "xsk/pool.hpp"
 
 namespace xsk::arc
 {
@@ -168,10 +170,12 @@ struct instruction
 {
     using ptr = std::unique_ptr<instruction>;
 
-    usize index;
-    usize size;
-    sourcepos pos;
-    opcode opcode;
+    XSK_POOLED
+
+    usize index{};
+    usize size{};
+    sourcepos pos{};
+    opcode opcode{};
     std::vector<std::string> data;
 
     static auto make() -> instruction::ptr
@@ -184,10 +188,10 @@ struct function
 {
     using ptr = std::unique_ptr<function>;
 
-    usize index;
-    usize size;
-    u8 params;
-    u8 flags;
+    usize index{};
+    usize size{};
+    u8 params{};
+    u8 flags{};
     std::string name;
     std::string space;
     std::vector<instruction::ptr> instructions;

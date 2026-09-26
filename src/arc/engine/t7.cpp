@@ -1,4 +1,4 @@
-// Copyright 2025 xensik. All rights reserved.
+// Copyright 2026 xensik. All rights reserved.
 //
 // Use of this source code is governed by a GNU GPLv3 license
 // that can be found in the LICENSE file.
@@ -11,7 +11,7 @@ namespace xsk::arc::t7
 extern std::array<std::pair<u16, opcode>, code_count> const code_list;
 extern std::array<std::pair<u32, char const*>, hash_count> const hash_list;
 
-context::context(arc::instance inst) : arc::context(feature::header72 | feature::size64 | feature::hashids | feature::devstr | feature::spaces | feature::refvarg | feature::foreach, engine::t7, endian::little, system::pc, inst, header_magic)
+context::context(arc::instance inst) : arc::context(feature::header72 | feature::size64 | feature::hashids | feature::devstr | feature::spaces | feature::refvarg | feature::foreach, engine::t7, endian::little, system::pc64, inst, header_magic)
 {
     code_map_.reserve(code_list.size());
     code_map_rev_.reserve(code_list.size());
@@ -27,6 +27,11 @@ context::context(arc::instance inst) : arc::context(feature::header72 | feature:
     {
         hash_map_.insert({ entry.first, entry.second });
     }
+
+    // ponytail: msvc (19.44) emits "spinpropkey" as "ghostindemo" when both literals
+    // share a translation unit (#260), so this one lives outside t7_hash.cpp. Upgrade
+    // path if more collisions turn up: store the names as one blob plus offsets.
+    hash_map_.insert({ 0xA5236ECF, "spinpropkey" });
 }
 
 } // namespace xsk::arc::t7

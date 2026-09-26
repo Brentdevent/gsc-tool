@@ -75,6 +75,14 @@ generate_version()
 -------------------------------------------------
 -- PROJECTS
 -------------------------------------------------
+-- report static init/deinit that runs before main / after exit (clang only).
+-- debug only: release sets fatalwarnings "All" and cxxopts still trips these.
+function report_static_init()
+    filter { "configurations:debug", "system:not windows" }
+        buildoptions { "-Wglobal-constructors", "-Wexit-time-destructors" }
+    filter {}
+end
+
 workspace "gsc-tool"
     startproject "xsk-tool"
     location "./build"
@@ -84,6 +92,7 @@ workspace "gsc-tool"
     cppdialect "C++20"
     staticruntime "On"
     warnings "Extra"
+    externalwarnings "Off"
 
     -- configurations
     configurations { "debug", "release" }
@@ -152,7 +161,10 @@ workspace "gsc-tool"
 project "xsk-tool"
     kind "ConsoleApp"
     language "C++"
+
     targetname "gsc-tool"
+
+    report_static_init()
 
     dependson "xsk-utils"
     dependson "xsk-arc"
@@ -182,6 +194,8 @@ project "xsk-utils"
     kind "StaticLib"
     language "C++"
 
+    report_static_init()
+
     files {
         "./src/utils/**.h",
         "./src/utils/**.hpp",
@@ -198,6 +212,8 @@ project "xsk-arc"
     kind "StaticLib"
     language "C++"
 
+    report_static_init()
+
     files {
         "./src/arc/**.h",
         "./src/arc/**.hpp",
@@ -212,6 +228,8 @@ project "xsk-gsc"
     kind "StaticLib"
     language "C++"
 
+    report_static_init()
+
     files {
         "./src/gsc/**.h",
         "./src/gsc/**.hpp",
@@ -222,5 +240,43 @@ project "xsk-gsc"
         "./include",
     }
 
+project "xsk-tests"
+    kind "ConsoleApp"
+    language "C++"
+
+    targetname "xsk-tests"
+
+    report_static_init()
+
+    dependson "xsk-utils"
+    dependson "xsk-arc"
+    dependson "xsk-gsc"
+
+    files {
+        "./test/**.h",
+        "./test/**.hpp",
+        "./test/**.cpp"
+    }
+
+    -- Baked in so the engine tests find test/data no matter what the working
+    -- directory is when the binary runs.
+    defines {
+        'XSK_TEST_DATA="' .. path.getabsolute("test/data") .. '"'
+    }
+
+    links {
+        "xsk-utils",
+        "xsk-arc",
+        "xsk-gsc",
+    }
+
+    includedirs {
+        "./include",
+    }
+
+    catch2:link()
+    zlib:link()
+
 group "Dependencies"
+    catch2:project()
     zlib:project()
