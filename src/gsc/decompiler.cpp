@@ -1660,7 +1660,12 @@ auto decompiler::decompile_ifelses(stmt_list& stm) -> void
                 if (stm.list.at(j)->as<stmt_jmp>().value == locs_.cnt)
                 {
                     // check for if/else or if/continue
-                    if (j - i > 1 && stm.list.at(j - 1)->is<stmt_return>())
+                    if (locs_.end != locs_.cnt || find_location_reference(stm, i + 1, j, entry->as<stmt_jmp_cond>().value))
+                    {
+                        // continue leaves this scope, or nested conditions share its end
+                        decompile_if(stm, i, j);
+                    }
+                    else if (j - i > 1 && stm.list.at(j - 1)->is<stmt_return>())
                     {
                         // scope ends with a return, so jump belows to if/else
                         decompile_ifelse(stm, i, j);
@@ -2024,6 +2029,38 @@ auto decompiler::decompile_inf(stmt_list& stm, usize begin, usize end) -> void
     locs_.cnt = stm.list[end]->label();
 
     auto loc = stm.list[begin]->loc();
+    auto iter = stmt::ptr{ stmt_empty::make(loc) };
+
+    // nested guards share a continue to the final wait
+    // keep ordinary if/else joins in the body to preserve local lifetimes
+    auto wait_iteration = false;
+    if (end > begin && (stm.list[end - 1]->is<stmt_wait>() || stm.list[end - 1]->is<stmt_waitframe>()) &&
+        !find_location_reference(stm, begin, end - 1, stm.list[end]->label()))
+    {
+        auto guards = std::unordered_map<std::string, usize>{};
+
+        for (auto i = begin; i < end - 1; i++)
+        {
+            if (stm.list[i]->is<stmt_jmp_cond>())
+            {
+                guards[stm.list[i]->as<stmt_jmp_cond>().value]++;
+            }
+            else if (stm.list[i]->is<stmt_jmp>() && stm.list[i]->as<stmt_jmp>().value == stm.list[end - 1]->label() &&
+                     guards[stm.list[i + 1]->label()] > 1)
+            {
+                wait_iteration = true;
+            }
+        }
+    }
+
+    if (wait_iteration)
+    {
+        locs_.end = stm.list[end - 1]->label();
+        locs_.cnt = locs_.end;
+        iter = std::move(stm.list[end - 1]);
+        stm.list.erase(stm.list.begin() + end - 1);
+        end--;
+    }
 
     stm.list.erase(stm.list.begin() + end);
 
@@ -2037,7 +2074,7 @@ auto decompiler::decompile_inf(stmt_list& stm, usize begin, usize end) -> void
 
     decompile_statements(*body);
     locs_ = save;
-    stm.list.insert(stm.list.begin() + begin, stmt_for::make(loc, stmt_empty::make(loc), expr_empty::make(loc), stmt_empty::make(loc), stmt_comp::make(loc, std::move(body))));
+    stm.list.insert(stm.list.begin() + begin, stmt_for::make(loc, stmt_empty::make(loc), expr_empty::make(loc), std::move(iter), stmt_comp::make(loc, std::move(body))));
 }
 
 auto decompiler::decompile_loop(stmt_list& stm, usize begin, usize end) -> void
@@ -2056,7 +2093,10 @@ auto decompiler::decompile_loop(stmt_list& stm, usize begin, usize end) -> void
                 {
                     auto ref = stm.list.at(begin)->label();
 
-                    if (!find_location_reference(stm, 0, begin, ref))
+                    // foreach clears its array temporary after the loop
+                    // manual getnextarraykey loops have no such temporary
+                    if (end + 1 < stm.list.size() && stm.list[end + 1]->is<stmt_clear>() &&
+                        !find_location_reference(stm, 0, begin, ref))
                     {
                         decompile_foreach(stm, begin, end);
                         return;
