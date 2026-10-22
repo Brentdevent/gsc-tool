@@ -744,7 +744,7 @@ extern std::array<std::pair<u16, char const*>, func_count> const func_list
     { 0x2DC, "killfxonweapon" },
     { 0x2DD, "_func_2DD" }, // MP 0x140339100
     { 0x2DE, "_func_2DE" }, // MP 0x140319200
-    { 0x2DF, "_func_2DF" }, // MP 0x140331E00
+    { 0x2DF, "playloopfxontag" }, // MP 0x140331E00
 }};
 
 } // namespace xsk::gsc::s1_pc
