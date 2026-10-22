@@ -14,7 +14,7 @@ namespace xsk::gsc::s2
 constexpr usize code_count = 155;
 constexpr usize func_count = 966;
 constexpr usize meth_count = 1750;
-constexpr usize token_count = 826;
+constexpr usize token_count = 13164;
 constexpr u32 max_string_id = 0xACEE;
 
 struct context : public gsc::context
