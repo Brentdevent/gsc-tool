@@ -2109,7 +2109,10 @@ auto decompiler::decompile_loop(stmt_list& stm, usize begin, usize end) -> void
                 {
                     auto ref = stm.list.at(begin)->label();
 
-                    if (!find_location_reference(stm, 0, begin, ref))
+                    // foreach clears its array temporary after the loop
+                    // manual getnextarraykey loops have no such temporary
+                    if (end + 1 < stm.list.size() && stm.list[end + 1]->is<stmt_clear>() &&
+                        !find_location_reference(stm, 0, begin, ref))
                     {
                         decompile_foreach(stm, begin, end);
                         return;
